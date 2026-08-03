@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Rubrica Impianti</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#12313a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rubrica Impianti">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="icon" href="./icon-192.png">
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+<!-- Firebase (facoltativo: se non configurato, l'app funziona in modalita' locale sul singolo dispositivo) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<style>
+  :root{
+    --navy:#12313a;
+    --teal:#1f5f66;
+    --teal-light:#3a8c8f;
+    --paper:#f6f4ee;
+    --card:#ffffff;
+    --ink:#1c2622;
+    --muted:#6b7770;
+    --amber:#d98a3d;
+    --amber-soft:#f3ddbc;
+    --line:#dfe0d8;
+    --gp:#3a8c8f;
+    --imp:#5c6f8a;
+    --evac:#b4623e;
+    --done:#3f9142;
+    --danger:#b4463e;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Arial,sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  header{
+    background:var(--navy);
+    color:#f2efe6;
+    padding:8px 16px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-shrink:0;
+    border-bottom:2px solid var(--amber);
+  }
+  header .brand{
+    font-family:Georgia,'Times New Roman',serif;
+    font-size:16px;
+    letter-spacing:0.3px;
+    font-weight:700;
+    white-space:nowrap;
+  }
+  header .brand span{color:var(--amber);}
+  header .sub{
+    font-size:10.5px;
+    color:#b9c4bd;
+    letter-spacing:0.2px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    flex:1;
+  }
+  header .status-dot{
+    width:8px;height:8px;border-radius:50%;
+    background:#7a8a83;
+    flex-shrink:0;
+  }
+  header .status-dot.online{background:#3f9142;}
+  header .status-dot.local{background:#d98a3d;}
+  @media (max-width:820px){
+    header .sub{display:none;}
+  }
+  .layout{
+    flex:1;
+    display:flex;
+    min-height:0;
+  }
+  .sidebar{
+    width:400px;
+    min-width:400px;
+    background:var(--card);
+    border-right:1px solid var(--line);
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+  }
+  .view-toggle{display:none;}
+  @media (max-width:820px){
+    .view-toggle{
+      display:flex;
+      gap:6px;
+      padding:6px 10px 0 10px;
+      flex-shrink:0;
+      background:var(--navy);
+    }
+    .view-toggle button{
+      flex:1;
+      border:none;
+      background:rgba(255,255,255,0.12);
+      color:#c9d3cd;
+      font-weight:700;
+      font-size:12px;
+      letter-spacing:0.2px;
+      padding:7px 0;
+      border-radius:7px 7px 0 0;
+      cursor:pointer;
+    }
+    .view-toggle button.active{
+      background:var(--paper);
+      color:var(--navy);
+    }
+    .layout{flex-direction:column;}
+    .sidebar{width:100%;min-width:0;max-height:none;flex:1;}
+    .map-wrap{flex:1;min-height:0;}
+    body.mode-list .map-wrap{display:none;}
+    body.mode-list .sidebar{display:flex;}
+    body.mode-map .sidebar{display:none;}
+    body.mode-map .map-wrap{display:block;}
+  }
+  .months{
+    display:flex;
+    gap:6px;
+    padding:8px 12px;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+  }
+  .months::-webkit-scrollbar{display:none;}
+  .month-btn{
+    border:1px solid var(--line);
+    background:var(--paper);
+    color:var(--muted);
+    font-size:11.5px;
+    font-weight:600;
+    letter-spacing:0.3px;
+    padding:7px 12px;
+    border-radius:16px;
+    cursor:pointer;
+    text-align:center;
+    transition:all .12s ease;
+    text-transform:uppercase;
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  .month-btn:hover{border-color:var(--teal-light);color:var(--teal);}
+  .month-btn.active{background:var(--teal);border-color:var(--teal);color:#fff;}
+  .month-btn.all{background:var(--navy);color:#f2efe6;border-color:var(--navy);font-weight:700;}
+  .month-btn.all.active{background:var(--amber);border-color:var(--amber);color:var(--navy);}
+
+  .legend-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:6px 14px;border-bottom:1px solid var(--line);flex-shrink:0;background:#fbfaf7;
+    font-size:11.5px;color:var(--ink);
+  }
+  .legend-toggle{
+    border:1px solid var(--line);background:#fff;color:var(--muted);
+    font-size:11px;font-weight:600;padding:4px 10px;border-radius:14px;cursor:pointer;flex-shrink:0;
+  }
+  .legend{
+    display:none;flex-wrap:wrap;gap:8px 12px;padding:9px 14px;
+    border-bottom:1px solid var(--line);font-size:10.5px;color:var(--muted);
+    flex-shrink:0;background:#fbfaf7;
+  }
+  .legend.open{display:flex;}
+  .legend-item{display:flex;align-items:center;gap:5px;}
+  .legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+  .legend-dot.ring{background:#9aa39c;border:2px solid var(--done);width:8px;height:8px;}
+
+  .toolbar-row{
+    display:flex;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);flex-shrink:0;
+  }
+  .toolbar-row input{
+    flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:7px;
+    font-size:13.5px;background:var(--paper);color:var(--ink);
+  }
+  .toolbar-row input:focus{outline:none;border-color:var(--teal-light);}
+  .icon-btn{
+    border:1px solid var(--line);background:#fff;color:var(--muted);
+    font-size:12px;font-weight:700;padding:0 12px;border-radius:7px;cursor:pointer;white-space:nowrap;
+  }
+  .icon-btn:hover{border-color:var(--teal-light);color:var(--teal);}
+  .icon-btn.danger:hover{border-color:var(--danger);color:var(--danger);}
+  .icon-btn.primary{background:var(--teal);border-color:var(--teal);color:#fff;}
+
+  .actions-row{
+    display:flex;gap:8px;padding:0 12px 10px 12px;flex-shrink:0;flex-wrap:wrap;
+  }
+  .actions-row .icon-btn{flex:1;padding:8px 6px;font-size:11.5px;}
+
+  .list{overflow-y:auto;flex:1;min-height:0;}
+  .client-card{
+    padding:11px 14px;border-bottom:1px solid var(--line);cursor:pointer;
+    transition:background .1s ease;display:flex;gap:10px;align-items:flex-start;
+  }
+  .client-card:hover{background:#eef2ee;}
+  .client-card.selected{background:var(--amber-soft);}
+  .client-card.done{background:#eef7ef;}
+  .card-body{flex:1;min-width:0;}
+  .done-toggle{
+    flex-shrink:0;width:22px;height:22px;border-radius:50%;border:2px solid var(--line);
+    background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;
+    margin-top:2px;font-size:13px;color:transparent;transition:all .12s ease;
+  }
+  .done-toggle:hover{border-color:var(--done);}
+  .done-toggle.checked{background:var(--done);border-color:var(--done);color:#fff;}
+  .client-card .name{font-weight:700;font-size:14px;color:var(--navy);margin-bottom:2px;}
+  .client-card.done .name{color:var(--done);}
+  .client-card .addr{font-size:12px;color:var(--muted);margin-bottom:5px;}
+  .badge-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center;}
+  .badge{
+    font-size:10px;font-weight:700;letter-spacing:0.3px;padding:3px 7px;
+    border-radius:20px;color:#fff;text-transform:uppercase;
+  }
+  .badge.tipo-impianto{background:var(--imp);}
+  .badge.tipo-pompa{background:var(--gp);}
+  .badge.tipo-evac{background:var(--evac);}
+  .badge.azienda{background:var(--navy);opacity:0.85;}
+  .badge.nota{background:#8a7455;}
+  .mini-btn{
+    border:none;background:none;color:var(--muted);font-size:14px;cursor:pointer;padding:2px 4px;
+  }
+  .mini-btn:hover{color:var(--teal);}
+  .mini-btn.danger:hover{color:var(--danger);}
+  .thumb{
+    width:40px;height:40px;border-radius:6px;object-fit:cover;flex-shrink:0;border:1px solid var(--line);
+  }
+
+  .map-wrap{flex:1;position:relative;}
+  #map{position:absolute;inset:0;}
+  .leaflet-popup-content-wrapper{border-radius:8px;}
+  .popup-name{font-weight:700;color:var(--navy);font-size:14px;margin-bottom:3px;}
+  .popup-addr{font-size:12px;color:var(--muted);margin-bottom:6px;}
+  .popup-sched{font-size:11.5px;color:var(--ink);margin-bottom:8px;}
+  .popup-sched div{margin-bottom:2px;}
+  .popup-toggle{
+    border:1px solid var(--done);background:#fff;color:var(--done);font-size:11.5px;font-weight:700;
+    padding:5px 10px;border-radius:6px;cursor:pointer;width:100%;
+  }
+  .popup-toggle.checked{background:var(--done);color:#fff;}
+
+  .fab{
+    position:fixed;right:18px;bottom:18px;width:52px;height:52px;border-radius:50%;
+    background:var(--amber);color:var(--navy);border:none;font-size:26px;font-weight:700;
+    box-shadow:0 4px 14px rgba(0,0,0,0.3);cursor:pointer;z-index:600;
+    display:flex;align-items:center;justify-content:center;line-height:0;
+  }
+
+  .empty-msg{padding:30px 20px;text-align:center;color:var(--muted);font-size:13px;}
+  ::-webkit-scrollbar{width:8px;}
+  ::-webkit-scrollbar-thumb{background:#c9cdc3;border-radius:4px;}
+
+  /* modal */
+  .overlay{
+    display:none;position:fixed;inset:0;background:rgba(18,49,58,0.55);z-index:9999;
+    align-items:center;justify-content:center;padding:16px;
+  }
+  .overlay.open{display:flex;}
+  .modal{
+    background:#fff;border-radius:12px;max-width:480px;width:100%;max-height:90vh;
+    overflow-y:auto;box-shadow:0 10px 30px rgba(0,0,0,0.3);
+  }
+  .modal-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;
+  }
+  .modal-header h3{margin:0;font-size:15px;color:var(--navy);}
+  .modal-body{padding:14px 16px;}
+  .form-row{margin-bottom:12px;}
+  .form-row label{
+    display:block;font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px;
+    text-transform:uppercase;letter-spacing:0.3px;
+  }
+  .form-row input[type=text], .form-row input[type=number], .form-row select, .form-row textarea{
+    width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;font-size:13.5px;
+    background:var(--paper);color:var(--ink);font-family:inherit;
+  }
+  .form-row textarea{resize:vertical;min-height:50px;}
+  .form-two-col{display:flex;gap:10px;}
+  .form-two-col .form-row{flex:1;}
+  .sched-entry{
+    border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--paper);
+  }
+  .sched-entry-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .sched-entry-head b{font-size:12px;color:var(--navy);text-transform:uppercase;}
+  #miniMap{height:180px;border-radius:8px;margin-bottom:6px;}
+  .modal-footer{
+    padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;
+    position:sticky;bottom:0;background:#fff;
+  }
+  .close-x{border:none;background:none;font-size:20px;color:var(--muted);cursor:pointer;}
+  .helper-text{font-size:11px;color:var(--muted);margin-top:4px;}
+  .banner{
+    background:var(--amber-soft);color:#7a4d1f;font-size:11.5px;padding:8px 14px;
+    border-bottom:1px solid var(--line);flex-shrink:0;display:none;
+  }
+  .banner.show{display:block;}
+</style>
+</head>
+<body>
+
+<div class="banner" id="localBanner">Modalita locale: i dati restano solo su questo dispositivo. Configura Firebase nel codice per sincronizzare su piu dispositivi.</div>
+
+<header>
+  <div class="brand">Rubrica <span>Impianti</span></div>
+  <div class="sub">Manutenzioni clienti &middot; divisione mensile &middot; mappa</div>
+  <div class="status-dot" id="statusDot" title="Stato connessione"></div>
+</header>
+
+<div class="view-toggle" id="viewToggle">
+  <button id="btnViewList" class="active">&#9776; Lista</button>
+  <button id="btnViewMap">&#128506; Mappa</button>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="months" id="months"></div>
+
+    <div class="legend-row">
+      <span id="countInline"><b id="count">0</b> clienti &middot; <span id="doneCount">-</span> fatti &middot; <span id="monthLabel">Tutti i mesi</span></span>
+      <button class="legend-toggle" id="legendToggleBtn">Legenda &#9662;</button>
+    </div>
+    <div class="legend" id="legend">
+      <div class="legend-item"><span class="legend-dot" style="background:#5c6f8a;"></span>Impianto</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#3a8c8f;"></span>Gruppo pompa</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#b4623e;"></span>Evacuatore</div>
+      <div class="legend-item"><span class="legend-dot ring"></span>Fatto (mese sel.)</div>
+    </div>
+
+    <div class="toolbar-row">
+      <input type="text" id="search" placeholder="Cerca cliente, indirizzo, citta, azienda...">
+      <button class="icon-btn" id="resetBtn" title="Azzera i 'fatti' del mese selezionato">Azzera</button>
+    </div>
+
+    <div class="actions-row">
+      <button class="icon-btn" id="exportExcelBtn">&#128203; Excel</button>
+      <button class="icon-btn" id="exportPdfBtn">&#128196; PDF</button>
+      <button class="icon-btn" id="seedBtn">&#9729; Importa dati</button>
+    </div>
+
+    <div class="list" id="list"></div>
+  </div>
+
+  <div class="map-wrap">
+    <div id="map"></div>
+    <button id="backToListBtn" style="display:none;position:absolute;top:14px;left:14px;z-index:500;background:#12313a;color:#f2efe6;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.3);">&larr; Lista</button>
+  </div>
+</div>
+
+<button class="fab" id="addClientFab" title="Aggiungi cliente">+</button>
+
+<!-- Modale form aggiungi/modifica cliente -->
+<div class="overlay" id="clientOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="clientModalTitle">Nuovo cliente</h3>
+      <button class="close-x" id="clientModalClose">&times;</button>
+    </div>
+    <div class="modal-body" id="clientModalBody">
+      <div class="form-row">
+        <label>Nome cliente</label>
+        <input type="text" id="f_nome" placeholder="Es. Hotel Rosa">
+      </div>
+      <div class="form-row">
+        <label>Indirizzo</label>
+        <input type="text" id="f_indirizzo" placeholder="Es. Via Roma 12">
+      </div>
+      <div class="form-two-col">
+        <div class="form-row">
+          <label>Citta</label>
+          <input type="text" id="f_citta" placeholder="Es. JESOLO">
+        </div>
+        <div class="form-row">
+          <label>Azienda / Rif.</label>
+          <input type="text" id="f_azienda" placeholder="Es. HOTEL">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Posizione sulla mappa (tocca per impostare)</label>
+        <div id="miniMap"></div>
+        <div class="form-two-col">
+          <div class="form-row"><label>Lat</label><input type="number" step="any" id="f_lat"></div>
+          <div class="form-row"><label>Lon</label><input type="number" step="any" id="f_lon"></div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Programma manutenzioni</label>
+        <div id="schedList"></div>
+        <button class="icon-btn" id="addSchedRowBtn" type="button">+ Aggiungi mese</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="icon-btn danger" id="deleteClientBtn" style="display:none;">Elimina cliente</button>
+      <button class="icon-btn primary" id="saveClientBtn">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale conferma generica -->
+<div id="confirmOverlay" class="overlay">
+  <div class="modal" style="max-width:320px;">
+    <div class="modal-body">
+      <div id="confirmMsg" style="font-size:14.5px;color:#1c2622;margin-bottom:16px;line-height:1.4;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button id="confirmCancel" class="icon-btn">Annulla</button>
+        <button id="confirmOk" class="icon-btn danger">Conferma</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="infoOverlay" class="overlay">
+  <div class="modal" style="max-width:320px;">
+    <div class="modal-body">
+      <div id="infoMsg" style="font-size:14.5px;color:#1c2622;margin-bottom:16px;line-height:1.4;"></div>
+      <div style="display:flex;justify-content:flex-end;">
+        <button id="infoOk" class="icon-btn primary">Ok</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   CONFIGURAZIONE FIREBASE (facoltativa)
+   Se lasci questo oggetto con i valori di esempio, l'app
+   funziona in "modalita locale": salva tutto solo su questo
+   dispositivo (localStorage), senza sincronizzare altrove.
+   Per attivare la sincronizzazione cloud fra piu dispositivi,
+   crea un progetto gratuito su https://console.firebase.google.com
+   attiva "Firestore Database" (modalita test) e incolla qui
+   sotto la configurazione che trovi in:
+   Impostazioni progetto > Generali > Le tue app > Web (</>) 
+   ========================================================= */
+const firebaseConfig = {
+  apiKey: "INSERISCI_QUI",
+  authDomain: "INSERISCI_QUI",
+  projectId: "INSERISCI_QUI",
+  storageBucket: "INSERISCI_QUI",
+  messagingSenderId: "INSERISCI_QUI",
+  appId: "INSERISCI_QUI"
+};
+
+const FIREBASE_CONFIGURED = firebaseConfig.apiKey && firebaseConfig.apiKey !== "INSERISCI_QUI";
+let db = null;
+let storageMode = 'local'; // 'local' oppure 'firebase'
+
+if(FIREBASE_CONFIGURED){
+  try{
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    db.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    storageMode = 'firebase';
+  }catch(e){
+    storageMode = 'local';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const dot = document.getElementById('statusDot');
+  const banner = document.getElementById('localBanner');
+  if(storageMode === 'firebase'){
+    dot.classList.add('online');
+  } else {
+    dot.classList.add('local');
+    banner.classList.add('show');
+  }
+});
+
+/* ========================= STATO ========================= */
+const MONTHS = ['GENNAIO','FEBBRAIO','MARZO','APRILE','MAGGIO','GIUGNO','LUGLIO','AGOSTO','SETTEMBRE','OTTOBRE','NOVEMBRE','DICEMBRE'];
+const MONTH_SHORT = {GENNAIO:'Gen',FEBBRAIO:'Feb',MARZO:'Mar',APRILE:'Apr',MAGGIO:'Mag',GIUGNO:'Giu',LUGLIO:'Lug',AGOSTO:'Ago',SETTEMBRE:'Set',OTTOBRE:'Ott',NOVEMBRE:'Nov',DICEMBRE:'Dic'};
+const TIPI = ['IMPIANTO','GRUPPO POMPA','IMPIANTO+GRUPPO POMPA','EVACUATORE','GRUPPO POMPA+EVACUATORE'];
+
+let CLIENTS = [];          // stato corrente, sempre in memoria
+let currentMonth = null;   // null = tutti i mesi
+let currentSearch = '';
+let selectedId = null;
+let nextLocalId = 1;
+
+/* ==================== PERSISTENZA DATI ==================== */
+const LOCAL_KEY = 'ri_clients_v2';
+
+function loadLocal(){
+  try{
+    const raw = localStorage.getItem(LOCAL_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function saveLocal(){
+  try{ localStorage.setItem(LOCAL_KEY, JSON.stringify(CLIENTS)); }catch(e){}
+}
+
+function idToDocId(id){ return 'c' + id; }
+
+async function fetchSeedData(){
+  const res = await fetch('./seed-data.json');
+  return res.json();
+}
+
+async function initData(){
+  if(storageMode === 'firebase'){
+    db.collection('clients').onSnapshot((snap) => {
+      const arr = [];
+      snap.forEach(doc => arr.push(doc.data()));
+      arr.sort((a,b) => (a.nome||'').localeCompare(b.nome||''));
+      CLIENTS = arr;
+      render();
+    }, (err) => {
+      showInfo('Errore di sincronizzazione: ' + err.message);
+    });
+  } else {
+    const local = loadLocal();
+    if(local && local.length){
+      CLIENTS = local;
+      nextLocalId = Math.max(...CLIENTS.map(c => c.id||0)) + 1;
+      render();
+    } else {
+      // primo avvio: nessun dato locale, mostro lista vuota finche' non si importa
+      CLIENTS = [];
+      render();
+    }
+  }
+}
+
+async function seedFromFile(){
+  const data = await fetchSeedData();
+  if(storageMode === 'firebase'){
+    const batchSize = 400;
+    for(let i=0;i<data.length;i+=batchSize){
+      const batch = db.batch();
+      data.slice(i, i+batchSize).forEach(c => {
+        const ref = db.collection('clients').doc(idToDocId(c.id));
+        batch.set(ref, c);
+      });
+      await batch.commit();
+    }
+  } else {
+    CLIENTS = data;
+    nextLocalId = Math.max(...CLIENTS.map(c => c.id||0)) + 1;
+    saveLocal();
+    render();
+  }
+}
+
+async function upsertClient(client){
+  if(storageMode === 'firebase'){
+    await db.collection('clients').doc(idToDocId(client.id)).set(client);
+  } else {
+    const idx = CLIENTS.findIndex(c => c.id === client.id);
+    if(idx >= 0) CLIENTS[idx] = client; else CLIENTS.push(client);
+    saveLocal();
+    render();
+  }
+}
+
+async function deleteClientData(id){
+  if(storageMode === 'firebase'){
+    await db.collection('clients').doc(idToDocId(id)).delete();
+  } else {
+    CLIENTS = CLIENTS.filter(c => c.id !== id);
+    saveLocal();
+    render();
+  }
+}
+
+/* ==================== VISTA MOBILE (lista/mappa) ==================== */
+document.body.classList.add('mode-list');
+const btnViewList = document.getElementById('btnViewList');
+const btnViewMap = document.getElementById('btnViewMap');
+const backToListBtn = document.getElementById('backToListBtn');
+
+function setMobileView(mode){
+  document.body.classList.remove('mode-list','mode-map');
+  document.body.classList.add(mode === 'map' ? 'mode-map' : 'mode-list');
+  btnViewList.classList.toggle('active', mode !== 'map');
+  btnViewMap.classList.toggle('active', mode === 'map');
+  backToListBtn.style.display = (mode === 'map' && window.innerWidth <= 820) ? 'block' : 'none';
+  if(mode === 'map' && map){
+    setTimeout(() => { try{ map.invalidateSize(); }catch(e){} }, 60);
+  }
+}
+btnViewList.addEventListener('click', () => setMobileView('list'));
+btnViewMap.addEventListener('click', () => setMobileView('map'));
+backToListBtn.addEventListener('click', () => setMobileView('list'));
+
+const legendToggleBtn = document.getElementById('legendToggleBtn');
+const legendEl = document.getElementById('legend');
+legendToggleBtn.addEventListener('click', () => legendEl.classList.toggle('open'));
+
+/* ==================== MODALI GENERICHE ==================== */
+function showInfo(msg){
+  const ov = document.getElementById('infoOverlay');
+  document.getElementById('infoMsg').textContent = msg;
+  ov.classList.add('open');
+  document.getElementById('infoOk').onclick = () => ov.classList.remove('open');
+}
+function showConfirm(msg, onOk){
+  const ov = document.getElementById('confirmOverlay');
+  document.getElementById('confirmMsg').textContent = msg;
+  ov.classList.add('open');
+  const okBtn = document.getElementById('confirmOk');
+  const cancelBtn = document.getElementById('confirmCancel');
+  const cleanup = () => { ov.classList.remove('open'); okBtn.onclick=null; cancelBtn.onclick=null; };
+  okBtn.onclick = () => { cleanup(); onOk(); };
+  cancelBtn.onclick = cleanup;
+}
+
+/* ==================== MESI ==================== */
+const monthsEl = document.getElementById('months');
+const allBtn = document.createElement('div');
+allBtn.className = 'month-btn all active';
+allBtn.textContent = 'Tutti i mesi';
+allBtn.onclick = () => setMonth(null);
+monthsEl.appendChild(allBtn);
+MONTHS.forEach(m => {
+  const b = document.createElement('div');
+  b.className = 'month-btn';
+  b.textContent = MONTH_SHORT[m];
+  b.dataset.month = m;
+  b.onclick = () => setMonth(m);
+  monthsEl.appendChild(b);
+});
+function setMonth(m){
+  currentMonth = m;
+  document.querySelectorAll('.month-btn').forEach(b => b.classList.remove('active'));
+  if(m === null){
+    allBtn.classList.add('active');
+    document.getElementById('monthLabel').textContent = 'Tutti i mesi';
+  } else {
+    document.querySelector(`.month-btn[data-month="${m}"]`).classList.add('active');
+    document.getElementById('monthLabel').textContent = m.charAt(0)+m.slice(1).toLowerCase();
+  }
+  render();
+}
+
+document.getElementById('search').addEventListener('input', (e) => {
+  currentSearch = e.target.value.trim().toLowerCase();
+  render();
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if(!currentMonth){ showInfo('Seleziona prima un mese per azzerare i suoi "fatti".'); return; }
+  const label = currentMonth.charAt(0)+currentMonth.slice(1).toLowerCase();
+  showConfirm(`Azzerare tutti i "fatti" di ${label}?`, async () => {
+    for(const c of CLIENTS){
+      const s = (c.schedule||[]).find(s => (s.mese||'').trim().toUpperCase() === currentMonth);
+      if(s && s.fatto){ s.fatto = false; await upsertClient(c); }
+    }
+    render();
+  });
+});
+
+document.getElementById('seedBtn').addEventListener('click', () => {
+  showConfirm('Importare/ripristinare i clienti di partenza? (non cancella quelli gia aggiunti manualmente se coincidono per ID)', async () => {
+    try{ await seedFromFile(); showInfo('Import completato.'); }
+    catch(e){ showInfo('Errore import: ' + e.message); }
+  });
+});
+
+/* ==================== HELPERS TIPO/COLORE ==================== */
+function tipoClass(tipo){
+  tipo = (tipo||'').toUpperCase();
+  if(tipo.includes('EVACUATORE') && tipo.includes('POMPA')) return 'tipo-pompa';
+  if(tipo.includes('EVACUATORE')) return 'tipo-evac';
+  if(tipo.includes('POMPA')) return 'tipo-pompa';
+  return 'tipo-impianto';
+}
+function colorHex(cls){
+  if(cls === 'tipo-pompa') return '#3a8c8f';
+  if(cls === 'tipo-evac') return '#b4623e';
+  return '#5c6f8a';
+}
+function matchesMonth(c, month){
+  if(!month) return true;
+  return (c.schedule||[]).some(s => (s.mese||'').trim().toUpperCase() === month);
+}
+function matchesSearch(c, q){
+  if(!q) return true;
+  const hay = (c.nome+' '+c.indirizzo+' '+c.citta+' '+c.azienda).toLowerCase();
+  return hay.includes(q);
+}
+function getFiltered(){
+  return CLIENTS.filter(c => matchesMonth(c, currentMonth) && matchesSearch(c, currentSearch));
+}
+function scheduleForMonth(c, month){
+  return (c.schedule||[]).find(s => (s.mese||'').trim().toUpperCase() === month);
+}
+
+/* ==================== MAPPA PRINCIPALE ==================== */
+let map = null, mapReady = false, markers = {};
+try{
+  if(typeof L !== 'undefined'){
+    map = L.map('map', {zoomControl:true}).setView([45.51,12.63], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom:19, attribution:'&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    mapReady = true;
+  }
+}catch(e){ mapReady = false; }
+
+function buildIcon(color, isSelected, done){
+  const size = isSelected ? 22 : 15;
+  const border = done ? '3px solid #3f9142' : '2px solid #fff';
+  const check = done ? `<div style="position:absolute;top:-4px;right:-4px;width:9px;height:9px;background:#3f9142;border-radius:50%;border:1.5px solid #fff;"></div>` : '';
+  return L.divIcon({
+    className:'',
+    html:`<div style="position:relative;width:${size}px;height:${size}px;">
+            <div style="width:100%;height:100%;border-radius:50%;background:${color};border:${border};box-shadow:0 1px 4px rgba(0,0,0,0.4);"></div>
+            ${check}
+          </div>`,
+    iconSize:[size,size], iconAnchor:[size/2,size/2]
+  });
+}
+
+function popupHtml(c){
+  let rows = '';
+  const s = currentMonth ? scheduleForMonth(c, currentMonth) : null;
+  if(currentMonth){
+    if(s){
+      rows += `<div><b>${s.tipo||'-'}</b></div>`;
+      let extra = [];
+      if(s.m3) extra.push('3&deg;: '+s.m3);
+      if(s.m6) extra.push('6&deg;: '+s.m6);
+      if(s.m9) extra.push('9&deg;: '+s.m9);
+      if(extra.length) rows += `<div style="color:#6b7770;">${extra.join(' &middot; ')}</div>`;
+      if(s.nota) rows += `<div style="margin-top:4px;">&#128221; ${s.nota}</div>`;
+      if(s.foto) rows += `<img src="${s.foto}" style="max-width:100%;border-radius:6px;margin-top:6px;">`;
+    }
+  } else {
+    (c.schedule||[]).forEach(s => { rows += `<div><b>${MONTH_SHORT[(s.mese||'').trim().toUpperCase()]||s.mese}:</b> ${s.tipo||'-'}</div>`; });
+  }
+  const done = s ? !!s.fatto : false;
+  let toggle = '';
+  if(currentMonth && s){
+    toggle = `<button class="popup-toggle ${done?'checked':''}" onclick="window.__toggleFromPopup(${c.id})">${done?'&#10003; Fatto':'Segna come fatto'}</button>`;
+  }
+  return `<div class="popup-name">${c.nome}</div>
+    <div class="popup-addr">${c.indirizzo}, ${c.citta}<br>Rif: ${c.azienda}</div>
+    <div class="popup-sched">${rows}</div>
+    <div style="display:flex;gap:6px;">
+      <button class="popup-toggle" style="border-color:#1f5f66;color:#1f5f66;" onclick="window.__editFromPopup(${c.id})">Modifica</button>
+    </div>
+    <div style="margin-top:6px;">${toggle}</div>`;
+}
+
+window.__toggleFromPopup = async function(id){
+  const c = CLIENTS.find(x => x.id === id);
+  const s = scheduleForMonth(c, currentMonth);
+  if(s){ s.fatto = !s.fatto; await upsertClient(c); }
+  if(markers[id]) markers[id].setPopupContent(popupHtml(c));
+};
+window.__editFromPopup = function(id){ openClientModal(id); };
+
+function markerColorFor(c){
+  const s = currentMonth ? scheduleForMonth(c, currentMonth) : (c.schedule||[])[0];
+  return colorHex(tipoClass(s ? s.tipo : ''));
+}
+
+function renderMap(filtered){
+  if(!mapReady || !map) return;
+  try{
+    Object.values(markers).forEach(m => map.removeLayer(m));
+    markers = {};
+    const bounds = [];
+    filtered.forEach(c => {
+      if(typeof c.lat !== 'number' || typeof c.lon !== 'number') return;
+      const s = currentMonth ? scheduleForMonth(c, currentMonth) : null;
+      const done = s ? !!s.fatto : false;
+      const marker = L.marker([c.lat,c.lon], {icon: buildIcon(markerColorFor(c), c.id===selectedId, done)});
+      marker.bindPopup(popupHtml(c));
+      marker.on('click', () => { selectedId = c.id; render(false); });
+      marker.addTo(map);
+      markers[c.id] = marker;
+      bounds.push([c.lat,c.lon]);
+    });
+    if(bounds.length && !selectedId) map.fitBounds(bounds, {padding:[30,30], maxZoom:14});
+  }catch(e){}
+}
+
+/* ==================== LISTA ==================== */
+function renderList(filtered){
+  const listEl = document.getElementById('list');
+  document.getElementById('count').textContent = filtered.length;
+  const s0 = currentMonth;
+  const doneN = s0 ? filtered.filter(c => { const s = scheduleForMonth(c, s0); return s && s.fatto; }).length : null;
+  document.getElementById('doneCount').textContent = s0 ? doneN : '-';
+
+  if(filtered.length === 0){
+    listEl.innerHTML = '<div class="empty-msg">Nessun cliente. Usa "Importa dati" per caricare la rubrica di partenza, oppure aggiungi un cliente con il pulsante +.</div>';
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(c => {
+    let schedHtml = '';
+    let s = null;
+    if(currentMonth){
+      s = scheduleForMonth(c, currentMonth);
+      if(s){
+        schedHtml = `<span class="badge ${tipoClass(s.tipo)}">${s.tipo||'-'}</span><span class="badge azienda">${c.azienda||''}</span>`;
+        if(s.nota) schedHtml += `<span class="badge nota">Nota</span>`;
+      }
+    } else {
+      const uniq = [...new Set((c.schedule||[]).map(s => s.tipo).filter(Boolean))];
+      schedHtml = uniq.map(t => `<span class="badge ${tipoClass(t)}">${t}</span>`).join('') + `<span class="badge azienda">${c.azienda||''}</span>`;
+    }
+    const done = s ? !!s.fatto : false;
+    const toggleHtml = currentMonth && s
+      ? `<div class="done-toggle ${done?'checked':''}" data-toggle-id="${c.id}" title="Segna come fatto/da fare">&#10003;</div>`
+      : `<div style="width:22px;flex-shrink:0;"></div>`;
+    const thumb = (s && s.foto) ? `<img class="thumb" src="${s.foto}">` : '';
+    return `<div class="client-card ${c.id===selectedId?'selected':''} ${done?'done':''}" data-id="${c.id}">
+      ${toggleHtml}
+      <div class="card-body">
+        <div class="name">${c.nome}</div>
+        <div class="addr">${c.indirizzo}, ${c.citta}</div>
+        <div class="badge-row">${schedHtml}${thumb}</div>
+      </div>
+      <button class="mini-btn" data-edit-id="${c.id}" title="Modifica">&#9998;</button>
+      <button class="mini-btn danger" data-del-id="${c.id}" title="Elimina">&#128465;</button>
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.done-toggle').forEach(t => {
+    t.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = parseInt(t.dataset.toggleId);
+      const c = CLIENTS.find(x => x.id === id);
+      const s = scheduleForMonth(c, currentMonth);
+      if(s){ s.fatto = !s.fatto; upsertClient(c); }
+    });
+  });
+  listEl.querySelectorAll('[data-edit-id]').forEach(b => {
+    b.addEventListener('click', (e) => { e.stopPropagation(); openClientModal(parseInt(b.dataset.editId)); });
+  });
+  listEl.querySelectorAll('[data-del-id]').forEach(b => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = parseInt(b.dataset.delId);
+      const c = CLIENTS.find(x => x.id === id);
+      showConfirm(`Eliminare "${c.nome}"?`, async () => { await deleteClientData(id); });
+    });
+  });
+  listEl.querySelectorAll('.client-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const id = parseInt(card.dataset.id);
+      selectedId = id;
+      render(false);
+      if(window.innerWidth <= 820) setMobileView('map');
+      const c = CLIENTS.find(x => x.id === id);
+      if(c && mapReady && map && typeof c.lat === 'number'){
+        try{
+          map.flyTo([c.lat,c.lon], 15, {duration:0.6});
+          setTimeout(() => { if(markers[id]) markers[id].openPopup(); }, 650);
+        }catch(e){}
+      }
+    });
+  });
+}
+
+function render(){
+  const filtered = getFiltered();
+  renderList(filtered);
+  renderMap(filtered);
+}
+
+/* ==================== MODALE AGGIUNGI/MODIFICA CLIENTE ==================== */
+const clientOverlay = document.getElementById('clientOverlay');
+const clientModalTitle = document.getElementById('clientModalTitle');
+const schedListEl = document.getElementById('schedList');
+let editingId = null;
+let miniMap = null, miniMarker = null;
+
+function newSchedRow(data){
+  data = data || {mese:'GENNAIO', tipo:'IMPIANTO', m3:'', m6:'', m9:'', nota:'', foto:'', fatto:false};
+  const row = document.createElement('div');
+  row.className = 'sched-entry';
+  const monthOptions = MONTHS.map(m => `<option value="${m}" ${m===((data.mese||'').trim().toUpperCase())?'selected':''}>${m.charAt(0)+m.slice(1).toLowerCase()}</option>`).join('');
+  const tipoOptions = TIPI.map(t => `<option value="${t}" ${t===data.tipo?'selected':''}>${t}</option>`).join('');
+  row.innerHTML = `
+    <div class="sched-entry-head">
+      <b>Mese</b>
+      <button type="button" class="mini-btn danger" data-remove-row>&#128465; rimuovi</button>
+    </div>
+    <div class="form-two-col">
+      <div class="form-row"><label>Mese</label><select class="s-mese">${monthOptions}</select></div>
+      <div class="form-row"><label>Tipo</label><select class="s-tipo">${tipoOptions}</select></div>
+    </div>
+    <div class="form-two-col">
+      <div class="form-row"><label>3&deg; mese</label><input type="text" class="s-m3" value="${data.m3||''}"></div>
+      <div class="form-row"><label>6&deg; mese</label><input type="text" class="s-m6" value="${data.m6||''}"></div>
+      <div class="form-row"><label>9&deg; mese</label><input type="text" class="s-m9" value="${data.m9||''}"></div>
+    </div>
+    <div class="form-row"><label>Nota</label><textarea class="s-nota">${data.nota||''}</textarea></div>
+    <div class="form-row">
+      <label>Foto (facoltativa)</label>
+      <input type="file" accept="image/*" class="s-foto-input">
+      <div class="s-foto-preview" style="margin-top:6px;">${data.foto ? `<img src="${data.foto}" style="max-width:120px;border-radius:6px;">` : ''}</div>
+      <input type="hidden" class="s-foto-data" value="${data.foto||''}">
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);text-transform:none;">
+      <input type="checkbox" class="s-fatto" ${data.fatto?'checked':''}> Gia fatto
+    </label>
+  `;
+  row.querySelector('[data-remove-row]').addEventListener('click', () => row.remove());
+  const fotoInput = row.querySelector('.s-foto-input');
+  fotoInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    compressImage(file, 900, 0.6).then(dataUrl => {
+      row.querySelector('.s-foto-data').value = dataUrl;
+      row.querySelector('.s-foto-preview').innerHTML = `<img src="${dataUrl}" style="max-width:120px;border-radius:6px;">`;
+    });
+  });
+  return row;
+}
+
+function compressImage(file, maxDim, quality){
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if(w > h && w > maxDim){ h = h*(maxDim/w); w = maxDim; }
+        else if(h > maxDim){ w = w*(maxDim/h); h = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('addSchedRowBtn').addEventListener('click', () => {
+  schedListEl.appendChild(newSchedRow());
+});
+
+function initMiniMap(lat, lon){
+  if(!mapReady) return;
+  if(miniMap){ miniMap.remove(); miniMap = null; }
+  miniMap = L.map('miniMap').setView([lat||45.51, lon||12.63], lat ? 14 : 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:''}).addTo(miniMap);
+  miniMarker = L.marker([lat||45.51, lon||12.63], {draggable:true}).addTo(miniMap);
+  miniMarker.on('dragend', () => {
+    const p = miniMarker.getLatLng();
+    document.getElementById('f_lat').value = p.lat.toFixed(7);
+    document.getElementById('f_lon').value = p.lng.toFixed(7);
+  });
+  miniMap.on('click', (e) => {
+    miniMarker.setLatLng(e.latlng);
+    document.getElementById('f_lat').value = e.latlng.lat.toFixed(7);
+    document.getElementById('f_lon').value = e.latlng.lng.toFixed(7);
+  });
+  setTimeout(() => { try{ miniMap.invalidateSize(); }catch(e){} }, 120);
+}
+
+function openClientModal(id){
+  editingId = id || null;
+  const c = id ? CLIENTS.find(x => x.id === id) : null;
+  clientModalTitle.textContent = c ? 'Modifica cliente' : 'Nuovo cliente';
+  document.getElementById('deleteClientBtn').style.display = c ? 'inline-block' : 'none';
+  document.getElementById('f_nome').value = c ? c.nome : '';
+  document.getElementById('f_indirizzo').value = c ? c.indirizzo : '';
+  document.getElementById('f_citta').value = c ? c.citta : '';
+  document.getElementById('f_azienda').value = c ? c.azienda : '';
+  document.getElementById('f_lat').value = c ? c.lat : '';
+  document.getElementById('f_lon').value = c ? c.lon : '';
+  schedListEl.innerHTML = '';
+  if(c && c.schedule && c.schedule.length){
+    c.schedule.forEach(s => schedListEl.appendChild(newSchedRow(s)));
+  } else {
+    schedListEl.appendChild(newSchedRow());
+  }
+  clientOverlay.classList.add('open');
+  setTimeout(() => initMiniMap(c ? c.lat : null, c ? c.lon : null), 80);
+}
+document.getElementById('addClientFab').addEventListener('click', () => openClientModal(null));
+document.getElementById('clientModalClose').addEventListener('click', () => clientOverlay.classList.remove('open'));
+
+document.getElementById('deleteClientBtn').addEventListener('click', () => {
+  if(!editingId) return;
+  const c = CLIENTS.find(x => x.id === editingId);
+  showConfirm(`Eliminare "${c.nome}"?`, async () => {
+    await deleteClientData(editingId);
+    clientOverlay.classList.remove('open');
+  });
+});
+
+document.getElementById('saveClientBtn').addEventListener('click', async () => {
+  const nome = document.getElementById('f_nome').value.trim();
+  if(!nome){ showInfo('Il nome cliente e obbligatorio.'); return; }
+  const lat = parseFloat(document.getElementById('f_lat').value);
+  const lon = parseFloat(document.getElementById('f_lon').value);
+  const schedule = [...schedListEl.querySelectorAll('.sched-entry')].map(row => ({
+    mese: row.querySelector('.s-mese').value,
+    tipo: row.querySelector('.s-tipo').value,
+    m3: row.querySelector('.s-m3').value,
+    m6: row.querySelector('.s-m6').value,
+    m9: row.querySelector('.s-m9').value,
+    nota: row.querySelector('.s-nota').value,
+    foto: row.querySelector('.s-foto-data').value,
+    fatto: row.querySelector('.s-fatto').checked
+  }));
+  const client = {
+    id: editingId || nextLocalId++,
+    nome,
+    indirizzo: document.getElementById('f_indirizzo').value.trim(),
+    citta: document.getElementById('f_citta').value.trim(),
+    azienda: document.getElementById('f_azienda').value.trim(),
+    lat: isNaN(lat) ? null : lat,
+    lon: isNaN(lon) ? null : lon,
+    schedule
+  };
+  await upsertClient(client);
+  clientOverlay.classList.remove('open');
+});
+
+/* ==================== ESPORTAZIONI ==================== */
+function flattenForExport(){
+  const rows = [];
+  getFiltered().forEach(c => {
+    (c.schedule && c.schedule.length ? c.schedule : [{}]).forEach(s => {
+      rows.push({
+        Cliente: c.nome, Indirizzo: c.indirizzo, Citta: c.citta, Azienda: c.azienda,
+        Mese: s.mese||'', Tipo: s.tipo||'', '3 mese': s.m3||'', '6 mese': s.m6||'', '9 mese': s.m9||'',
+        Nota: s.nota||'', Fatto: s.fatto ? 'SI' : 'NO'
+      });
+    });
+  });
+  return rows;
+}
+
+document.getElementById('exportExcelBtn').addEventListener('click', () => {
+  if(typeof XLSX === 'undefined'){ showInfo('Funzione non disponibile offline: serve una connessione internet la prima volta.'); return; }
+  const rows = flattenForExport();
+  if(!rows.length){ showInfo('Nessun cliente da esportare con i filtri attuali.'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Clienti');
+  const label = currentMonth ? currentMonth.toLowerCase() : 'tutti';
+  XLSX.writeFile(wb, `rubrica_impianti_${label}.xlsx`);
+});
+
+document.getElementById('exportPdfBtn').addEventListener('click', () => {
+  if(typeof window.jspdf === 'undefined'){ showInfo('Funzione non disponibile offline: serve una connessione internet la prima volta.'); return; }
+  const rows = flattenForExport();
+  if(!rows.length){ showInfo('Nessun cliente da esportare con i filtri attuali.'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'landscape'});
+  const label = currentMonth ? (currentMonth.charAt(0)+currentMonth.slice(1).toLowerCase()) : 'Tutti i mesi';
+  doc.setFontSize(14);
+  doc.text('Rubrica Impianti - ' + label, 14, 14);
+  doc.autoTable({
+    startY: 20,
+    head: [['Cliente','Indirizzo','Citta','Azienda','Mese','Tipo','Nota','Fatto']],
+    body: rows.map(r => [r.Cliente, r.Indirizzo, r.Citta, r.Azienda, r.Mese, r.Tipo, r.Nota, r.Fatto]),
+    styles: { fontSize: 7 },
+    headStyles: { fillColor: [18,49,58] }
+  });
+  const label2 = currentMonth ? currentMonth.toLowerCase() : 'tutti';
+  doc.save(`rubrica_impianti_${label2}.pdf`);
+});
+
+/* ==================== AVVIO ==================== */
+initData();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
