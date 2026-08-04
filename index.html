@@ -15,9 +15,7 @@
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
 <!-- Firebase (facoltativo: se non configurato, l'app funziona in modalita' locale sul singolo dispositivo) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -352,8 +350,6 @@
     </div>
 
     <div class="actions-row">
-      <button class="icon-btn" id="exportExcelBtn">&#128203; Excel</button>
-      <button class="icon-btn" id="exportPdfBtn">&#128196; PDF</button>
       <button class="icon-btn" id="seedBtn">&#9729; Importa dati</button>
     </div>
 
@@ -412,6 +408,46 @@
     <div class="modal-footer">
       <button class="icon-btn danger" id="deleteClientBtn" style="display:none;">Elimina cliente</button>
       <button class="icon-btn primary" id="saveClientBtn">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale rapportino di intervento -->
+<div class="overlay" id="reportOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Rapportino di intervento</h3>
+      <button class="close-x" id="reportModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>Azienda (intestazione rapportino)</label>
+        <input type="text" id="r_azienda_intestazione" placeholder="Es. Barsant Antincendio">
+      </div>
+      <div class="form-two-col">
+        <div class="form-row"><label>Cliente</label><input type="text" id="r_cliente" readonly></div>
+        <div class="form-row"><label>Data intervento</label><input type="text" id="r_data"></div>
+      </div>
+      <div class="form-row"><label>Indirizzo</label><input type="text" id="r_indirizzo" readonly></div>
+      <div class="form-two-col">
+        <div class="form-row"><label>Mese di riferimento</label><input type="text" id="r_mese" readonly></div>
+        <div class="form-row"><label>Tecnico</label><input type="text" id="r_tecnico" placeholder="Nome tecnico"></div>
+      </div>
+      <div class="form-row"><label>Tipo intervento</label><input type="text" id="r_tipo"></div>
+      <div class="form-row"><label>Descrizione lavori eseguiti</label><textarea id="r_descrizione" style="min-height:80px;"></textarea></div>
+      <div class="form-row">
+        <label>Foto allegate</label>
+        <div id="r_foto_preview" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+      <div class="form-row">
+        <label>Firma cliente</label>
+        <canvas id="r_signature" style="width:100%;height:160px;border:1px solid var(--line);border-radius:8px;background:#fff;touch-action:none;"></canvas>
+        <div class="helper-text">Fai firmare il cliente col dito direttamente sullo schermo.</div>
+        <button type="button" class="icon-btn" id="r_clear_sign" style="margin-top:6px;">Cancella firma</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="icon-btn primary" id="r_generate_btn">Genera PDF</button>
     </div>
   </div>
 </div>
@@ -744,7 +780,8 @@ function popupHtml(c){
       if(s.m9) extra.push('9&deg;: '+s.m9);
       if(extra.length) rows += `<div style="color:#6b7770;">${extra.join(' &middot; ')}</div>`;
       if(s.nota) rows += `<div style="margin-top:4px;">&#128221; ${s.nota}</div>`;
-      if(s.foto) rows += `<img src="${s.foto}" style="max-width:100%;border-radius:6px;margin-top:6px;">`;
+      const fotos = Array.isArray(s.fotos) ? s.fotos : (s.foto ? [s.foto] : []);
+      if(fotos.length) rows += `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;">${fotos.map(f=>`<img src="${f}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;">`).join('')}</div>`;
     }
   } else {
     (c.schedule||[]).forEach(s => { rows += `<div><b>${MONTH_SHORT[(s.mese||'').trim().toUpperCase()]||s.mese}:</b> ${s.tipo||'-'}</div>`; });
@@ -759,6 +796,7 @@ function popupHtml(c){
     <div class="popup-sched">${rows}</div>
     <div style="display:flex;gap:6px;">
       <button class="popup-toggle" style="border-color:#1f5f66;color:#1f5f66;" onclick="window.__editFromPopup(${c.id})">Modifica</button>
+      <button class="popup-toggle" style="border-color:#d98a3d;color:#d98a3d;" onclick="window.__reportFromPopup(${c.id})">Rapportino</button>
     </div>
     <div style="margin-top:6px;">${toggle}</div>`;
 }
@@ -770,6 +808,7 @@ window.__toggleFromPopup = async function(id){
   if(markers[id]) markers[id].setPopupContent(popupHtml(c));
 };
 window.__editFromPopup = function(id){ openClientModal(id); };
+window.__reportFromPopup = function(id){ openReportModal(id); };
 
 function markerColorFor(c){
   const s = currentMonth ? scheduleForMonth(c, currentMonth) : (c.schedule||[])[0];
@@ -827,7 +866,8 @@ function renderList(filtered){
     const toggleHtml = currentMonth && s
       ? `<div class="done-toggle ${done?'checked':''}" data-toggle-id="${c.id}" title="Segna come fatto/da fare">&#10003;</div>`
       : `<div style="width:22px;flex-shrink:0;"></div>`;
-    const thumb = (s && s.foto) ? `<img class="thumb" src="${s.foto}">` : '';
+    const sFotos = s ? (Array.isArray(s.fotos) ? s.fotos : (s.foto ? [s.foto] : [])) : [];
+    const thumb = sFotos.length ? `<img class="thumb" src="${sFotos[0]}">` : '';
     return `<div class="client-card ${c.id===selectedId?'selected':''} ${done?'done':''}" data-id="${c.id}">
       ${toggleHtml}
       <div class="card-body">
@@ -836,9 +876,14 @@ function renderList(filtered){
         <div class="badge-row">${schedHtml}${thumb}</div>
       </div>
       <button class="mini-btn" data-edit-id="${c.id}" title="Modifica">&#9998;</button>
+      <button class="mini-btn" data-report-id="${c.id}" title="Rapportino">&#128221;</button>
       <button class="mini-btn danger" data-del-id="${c.id}" title="Elimina">&#128465;</button>
     </div>`;
   }).join('');
+
+  listEl.querySelectorAll('[data-report-id]').forEach(b => {
+    b.addEventListener('click', (e) => { e.stopPropagation(); openReportModal(parseInt(b.dataset.reportId)); });
+  });
 
   listEl.querySelectorAll('.done-toggle').forEach(t => {
     t.addEventListener('click', (e) => {
@@ -891,7 +936,8 @@ let editingId = null;
 let miniMap = null, miniMarker = null;
 
 function newSchedRow(data){
-  data = data || {mese:'GENNAIO', tipo:'IMPIANTO', m3:'', m6:'', m9:'', nota:'', foto:'', fatto:false};
+  data = data || {mese:'GENNAIO', tipo:'IMPIANTO', m3:'', m6:'', m9:'', nota:'', fotos:[], fatto:false};
+  const fotos = Array.isArray(data.fotos) ? data.fotos.slice() : (data.foto ? [data.foto] : []);
   const row = document.createElement('div');
   row.className = 'sched-entry';
   const monthOptions = MONTHS.map(m => `<option value="${m}" ${m===((data.mese||'').trim().toUpperCase())?'selected':''}>${m.charAt(0)+m.slice(1).toLowerCase()}</option>`).join('');
@@ -912,26 +958,77 @@ function newSchedRow(data){
     </div>
     <div class="form-row"><label>Nota</label><textarea class="s-nota">${data.nota||''}</textarea></div>
     <div class="form-row">
-      <label>Foto (facoltativa)</label>
-      <input type="file" accept="image/*" class="s-foto-input">
-      <div class="s-foto-preview" style="margin-top:6px;">${data.foto ? `<img src="${data.foto}" style="max-width:120px;border-radius:6px;">` : ''}</div>
-      <input type="hidden" class="s-foto-data" value="${data.foto||''}">
+      <label>Foto (puoi aggiungerne pi&ugrave; di una)</label>
+      <div class="s-foto-grid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;"></div>
+      <input type="file" accept="image/*" multiple class="s-foto-input">
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <button type="button" class="icon-btn s-share-btn" style="flex:1;">&#128228; Condividi nota e foto</button>
     </div>
     <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);text-transform:none;">
       <input type="checkbox" class="s-fatto" ${data.fatto?'checked':''}> Gia fatto
     </label>
   `;
   row.querySelector('[data-remove-row]').addEventListener('click', () => row.remove());
-  const fotoInput = row.querySelector('.s-foto-input');
-  fotoInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if(!file) return;
-    compressImage(file, 900, 0.6).then(dataUrl => {
-      row.querySelector('.s-foto-data').value = dataUrl;
-      row.querySelector('.s-foto-preview').innerHTML = `<img src="${dataUrl}" style="max-width:120px;border-radius:6px;">`;
+
+  const fotoGrid = row.querySelector('.s-foto-grid');
+  row._fotos = fotos;
+
+  function renderFotoGrid(){
+    fotoGrid.innerHTML = row._fotos.map((f, i) => `
+      <div style="position:relative;">
+        <img src="${f}" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">
+        <button type="button" data-remove-foto="${i}" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:12px;line-height:1;">&times;</button>
+      </div>
+    `).join('');
+    fotoGrid.querySelectorAll('[data-remove-foto]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        row._fotos.splice(parseInt(btn.dataset.removeFoto), 1);
+        renderFotoGrid();
+      });
     });
+  }
+  renderFotoGrid();
+
+  const fotoInput = row.querySelector('.s-foto-input');
+  fotoInput.addEventListener('change', async (e) => {
+    const files = [...e.target.files];
+    for(const file of files){
+      const dataUrl = await compressImage(file, 900, 0.6);
+      row._fotos.push(dataUrl);
+    }
+    fotoInput.value = '';
+    renderFotoGrid();
   });
+
+  row.querySelector('.s-share-btn').addEventListener('click', async () => {
+    const nota = row.querySelector('.s-nota').value;
+    await shareNoteAndPhotos(nota, row._fotos);
+  });
+
   return row;
+}
+
+async function shareNoteAndPhotos(nota, fotos){
+  if(!navigator.share){
+    showInfo('La condivisione diretta non e supportata da questo browser. Puoi comunque copiare il testo della nota manualmente.');
+    return;
+  }
+  try{
+    const files = [];
+    for(let i=0;i<(fotos||[]).length;i++){
+      const res = await fetch(fotos[i]);
+      const blob = await res.blob();
+      files.push(new File([blob], `foto_${i+1}.jpg`, {type:'image/jpeg'}));
+    }
+    const shareData = { title:'Nota intervento', text: nota || '(nessuna nota)' };
+    if(files.length && navigator.canShare && navigator.canShare({files})){
+      shareData.files = files;
+    }
+    await navigator.share(shareData);
+  }catch(e){
+    if(e.name !== 'AbortError') showInfo('Condivisione non riuscita: ' + e.message);
+  }
 }
 
 function compressImage(file, maxDim, quality){
@@ -1021,7 +1118,7 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
     m6: row.querySelector('.s-m6').value,
     m9: row.querySelector('.s-m9').value,
     nota: row.querySelector('.s-nota').value,
-    foto: row.querySelector('.s-foto-data').value,
+    fotos: row._fotos || [],
     fatto: row.querySelector('.s-fatto').checked
   }));
   const client = {
@@ -1038,50 +1135,181 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
   clientOverlay.classList.remove('open');
 });
 
-/* ==================== ESPORTAZIONI ==================== */
-function flattenForExport(){
-  const rows = [];
-  getFiltered().forEach(c => {
-    (c.schedule && c.schedule.length ? c.schedule : [{}]).forEach(s => {
-      rows.push({
-        Cliente: c.nome, Indirizzo: c.indirizzo, Citta: c.citta, Azienda: c.azienda,
-        Mese: s.mese||'', Tipo: s.tipo||'', '3 mese': s.m3||'', '6 mese': s.m6||'', '9 mese': s.m9||'',
-        Nota: s.nota||'', Fatto: s.fatto ? 'SI' : 'NO'
-      });
-    });
-  });
-  return rows;
+/* ==================== RAPPORTINO DI INTERVENTO ==================== */
+const reportOverlay = document.getElementById('reportOverlay');
+const sigCanvas = document.getElementById('r_signature');
+const sigCtx = sigCanvas.getContext('2d');
+let sigDrawing = false;
+let sigHasContent = false;
+let reportClient = null;
+let reportPhotos = [];
+
+const R_COMPANY_KEY = 'ri_report_company';
+const R_TECH_KEY = 'ri_report_tecnico';
+
+function resizeSigCanvas(){
+  const rect = sigCanvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  sigCanvas.width = rect.width * ratio;
+  sigCanvas.height = rect.height * ratio;
+  sigCtx.scale(ratio, ratio);
+  sigCtx.fillStyle = '#ffffff';
+  sigCtx.fillRect(0,0,rect.width, rect.height);
+  sigCtx.strokeStyle = '#12313a';
+  sigCtx.lineWidth = 2.2;
+  sigCtx.lineCap = 'round';
+  sigCtx.lineJoin = 'round';
+  sigHasContent = false;
 }
 
-document.getElementById('exportExcelBtn').addEventListener('click', () => {
-  if(typeof XLSX === 'undefined'){ showInfo('Funzione non disponibile offline: serve una connessione internet la prima volta.'); return; }
-  const rows = flattenForExport();
-  if(!rows.length){ showInfo('Nessun cliente da esportare con i filtri attuali.'); return; }
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Clienti');
-  const label = currentMonth ? currentMonth.toLowerCase() : 'tutti';
-  XLSX.writeFile(wb, `rubrica_impianti_${label}.xlsx`);
-});
+function sigPos(e){
+  const rect = sigCanvas.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+  const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+  return {x:cx, y:cy};
+}
+function sigStart(e){
+  e.preventDefault();
+  sigDrawing = true;
+  const p = sigPos(e);
+  sigCtx.beginPath();
+  sigCtx.moveTo(p.x, p.y);
+}
+function sigMove(e){
+  if(!sigDrawing) return;
+  e.preventDefault();
+  const p = sigPos(e);
+  sigCtx.lineTo(p.x, p.y);
+  sigCtx.stroke();
+  sigHasContent = true;
+}
+function sigEnd(e){ sigDrawing = false; }
+sigCanvas.addEventListener('mousedown', sigStart);
+sigCanvas.addEventListener('mousemove', sigMove);
+window.addEventListener('mouseup', sigEnd);
+sigCanvas.addEventListener('touchstart', sigStart, {passive:false});
+sigCanvas.addEventListener('touchmove', sigMove, {passive:false});
+sigCanvas.addEventListener('touchend', sigEnd);
 
-document.getElementById('exportPdfBtn').addEventListener('click', () => {
-  if(typeof window.jspdf === 'undefined'){ showInfo('Funzione non disponibile offline: serve una connessione internet la prima volta.'); return; }
-  const rows = flattenForExport();
-  if(!rows.length){ showInfo('Nessun cliente da esportare con i filtri attuali.'); return; }
+document.getElementById('r_clear_sign').addEventListener('click', () => resizeSigCanvas());
+
+function openReportModal(id){
+  reportClient = CLIENTS.find(x => x.id === id);
+  if(!reportClient) return;
+  const s = currentMonth ? scheduleForMonth(reportClient, currentMonth) : (reportClient.schedule||[])[0];
+
+  document.getElementById('r_azienda_intestazione').value = localStorage.getItem(R_COMPANY_KEY) || '';
+  document.getElementById('r_cliente').value = reportClient.nome || '';
+  document.getElementById('r_indirizzo').value = `${reportClient.indirizzo||''}, ${reportClient.citta||''}`;
+  document.getElementById('r_mese').value = s ? (s.mese||'') : (currentMonth||'');
+  document.getElementById('r_tecnico').value = localStorage.getItem(R_TECH_KEY) || '';
+  document.getElementById('r_tipo').value = s ? (s.tipo||'') : '';
+  document.getElementById('r_descrizione').value = s ? (s.nota||'') : '';
+
+  const today = new Date();
+  document.getElementById('r_data').value = today.toLocaleDateString('it-IT');
+
+  reportPhotos = s ? (Array.isArray(s.fotos) ? s.fotos : (s.foto ? [s.foto] : [])) : [];
+  document.getElementById('r_foto_preview').innerHTML = reportPhotos.map(f =>
+    `<img src="${f}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">`
+  ).join('') || '<span class="helper-text">Nessuna foto per questo mese.</span>';
+
+  reportOverlay.classList.add('open');
+  setTimeout(resizeSigCanvas, 60);
+}
+document.getElementById('reportModalClose').addEventListener('click', () => reportOverlay.classList.remove('open'));
+
+document.getElementById('r_generate_btn').addEventListener('click', async () => {
+  if(typeof window.jspdf === 'undefined'){
+    showInfo('Funzione non disponibile offline: serve una connessione internet la prima volta.');
+    return;
+  }
+  const azienda = document.getElementById('r_azienda_intestazione').value.trim();
+  const tecnico = document.getElementById('r_tecnico').value.trim();
+  localStorage.setItem(R_COMPANY_KEY, azienda);
+  localStorage.setItem(R_TECH_KEY, tecnico);
+
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({orientation:'landscape'});
-  const label = currentMonth ? (currentMonth.charAt(0)+currentMonth.slice(1).toLowerCase()) : 'Tutti i mesi';
-  doc.setFontSize(14);
-  doc.text('Rubrica Impianti - ' + label, 14, 14);
-  doc.autoTable({
-    startY: 20,
-    head: [['Cliente','Indirizzo','Citta','Azienda','Mese','Tipo','Nota','Fatto']],
-    body: rows.map(r => [r.Cliente, r.Indirizzo, r.Citta, r.Azienda, r.Mese, r.Tipo, r.Nota, r.Fatto]),
-    styles: { fontSize: 7 },
-    headStyles: { fillColor: [18,49,58] }
+  const doc = new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
+  const pageW = doc.internal.pageSize.getWidth();
+  let y = 16;
+
+  doc.setFillColor(18,49,58);
+  doc.rect(0,0,pageW,22,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(15);
+  doc.text(azienda || 'Rapportino di intervento', 12, 14);
+  doc.setFontSize(9);
+  doc.setTextColor(230,230,230);
+  doc.text('Rapportino di intervento tecnico', 12, 19);
+  y = 30;
+
+  doc.setTextColor(20,20,20);
+  doc.setFontSize(11);
+  const lines = [
+    ['Cliente', document.getElementById('r_cliente').value],
+    ['Indirizzo', document.getElementById('r_indirizzo').value],
+    ['Data intervento', document.getElementById('r_data').value],
+    ['Mese di riferimento', document.getElementById('r_mese').value],
+    ['Tecnico', tecnico || '-'],
+    ['Tipo intervento', document.getElementById('r_tipo').value || '-'],
+  ];
+  lines.forEach(([label, val]) => {
+    doc.setFont(undefined,'bold'); doc.text(label + ':', 12, y);
+    doc.setFont(undefined,'normal'); doc.text(String(val||'-'), 60, y);
+    y += 7;
   });
-  const label2 = currentMonth ? currentMonth.toLowerCase() : 'tutti';
-  doc.save(`rubrica_impianti_${label2}.pdf`);
+
+  y += 2;
+  doc.setFont(undefined,'bold'); doc.text('Descrizione lavori eseguiti:', 12, y); y += 6;
+  doc.setFont(undefined,'normal');
+  const desc = doc.splitTextToSize(document.getElementById('r_descrizione').value || '-', pageW - 24);
+  doc.text(desc, 12, y);
+  y += desc.length * 5.5 + 6;
+
+  if(reportPhotos.length){
+    doc.setFont(undefined,'bold'); doc.text('Foto:', 12, y); y += 4;
+    let x = 12;
+    const imgSize = 40;
+    for(const foto of reportPhotos){
+      if(x + imgSize > pageW - 12){ x = 12; y += imgSize + 4; }
+      if(y + imgSize > 270){ doc.addPage(); y = 16; x = 12; }
+      try{ doc.addImage(foto, 'JPEG', x, y, imgSize, imgSize); }catch(e){}
+      x += imgSize + 4;
+    }
+    y += imgSize + 10;
+  }
+
+  if(y > 230) { doc.addPage(); y = 20; }
+  doc.setFont(undefined,'bold'); doc.text('Firma cliente per accettazione lavori:', 12, y); y += 4;
+  if(sigHasContent){
+    try{
+      const sigData = sigCanvas.toDataURL('image/png');
+      doc.addImage(sigData, 'PNG', 12, y, 70, 28);
+    }catch(e){}
+  }
+  y += 32;
+  doc.setDrawColor(180,180,180);
+  doc.line(12, y, 82, y);
+  doc.setFontSize(8);
+  doc.setTextColor(120,120,120);
+  doc.text('Firma', 12, y+4);
+
+  const fname = `rapportino_${(reportClient.nome||'cliente').replace(/[^a-z0-9]+/gi,'_')}_${document.getElementById('r_data').value.replace(/\//g,'-')}.pdf`;
+
+  if(navigator.share && navigator.canShare){
+    try{
+      const blob = doc.output('blob');
+      const file = new File([blob], fname, {type:'application/pdf'});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({title:'Rapportino intervento', files:[file]});
+        reportOverlay.classList.remove('open');
+        return;
+      }
+    }catch(e){ /* fallback sotto */ }
+  }
+  doc.save(fname);
+  reportOverlay.classList.remove('open');
 });
 
 /* ==================== AVVIO ==================== */
