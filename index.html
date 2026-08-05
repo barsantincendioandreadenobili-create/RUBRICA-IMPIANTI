@@ -50,14 +50,14 @@
     overflow:hidden;
   }
   header{
-    background:var(--navy);
+    background:#141414;
     color:#f2efe6;
     padding:8px 16px;
     display:flex;
     align-items:center;
     gap:10px;
     flex-shrink:0;
-    border-bottom:2px solid var(--amber);
+    border-bottom:2px solid #2f8fe0;
   }
   header .brand{
     font-family:Georgia,'Times New Roman',serif;
@@ -65,8 +65,9 @@
     letter-spacing:0.3px;
     font-weight:700;
     white-space:nowrap;
+    color:#2f8fe0;
   }
-  header .brand span{color:var(--amber);}
+  header .brand span{color:#2f8fe0;}
   header .sub{
     font-size:10.5px;
     color:#b9c4bd;
@@ -82,7 +83,7 @@
     flex-shrink:0;
   }
   header .status-dot.online{background:#3f9142;}
-  header .status-dot.local{background:#d98a3d;}
+  header .status-dot.local{background:#c0392b;}
   @media (max-width:820px){
     header .sub{display:none;}
   }
@@ -256,13 +257,6 @@
   }
   .popup-toggle.checked{background:var(--done);color:#fff;}
 
-  .fab{
-    position:fixed;right:18px;bottom:18px;width:52px;height:52px;border-radius:50%;
-    background:var(--amber);color:var(--navy);border:none;font-size:26px;font-weight:700;
-    box-shadow:0 4px 14px rgba(0,0,0,0.3);cursor:pointer;z-index:600;
-    display:flex;align-items:center;justify-content:center;line-height:0;
-  }
-
   .empty-msg{padding:30px 20px;text-align:center;color:var(--muted);font-size:13px;}
   ::-webkit-scrollbar{width:8px;}
   ::-webkit-scrollbar-thumb{background:#c9cdc3;border-radius:4px;}
@@ -350,6 +344,8 @@
     </div>
 
     <div class="actions-row">
+      <button class="icon-btn primary" id="newClientBtn">&#10133; Nuovo cliente</button>
+      <button class="icon-btn" id="genericReportBtn">&#128221; Rapportino</button>
       <button class="icon-btn" id="seedBtn">&#9729; Importa dati</button>
     </div>
 
@@ -362,7 +358,6 @@
   </div>
 </div>
 
-<button class="fab" id="addClientFab" title="Aggiungi cliente">+</button>
 
 <!-- Modale form aggiungi/modifica cliente -->
 <div class="overlay" id="clientOverlay">
@@ -425,19 +420,20 @@
         <input type="text" id="r_azienda_intestazione" placeholder="Es. Barsant Antincendio">
       </div>
       <div class="form-two-col">
-        <div class="form-row"><label>Cliente</label><input type="text" id="r_cliente" readonly></div>
+        <div class="form-row"><label>Cliente</label><input type="text" id="r_cliente"></div>
         <div class="form-row"><label>Data intervento</label><input type="text" id="r_data"></div>
       </div>
-      <div class="form-row"><label>Indirizzo</label><input type="text" id="r_indirizzo" readonly></div>
+      <div class="form-row"><label>Indirizzo</label><input type="text" id="r_indirizzo"></div>
       <div class="form-two-col">
-        <div class="form-row"><label>Mese di riferimento</label><input type="text" id="r_mese" readonly></div>
+        <div class="form-row"><label>Mese di riferimento</label><select id="r_mese"></select></div>
         <div class="form-row"><label>Tecnico</label><input type="text" id="r_tecnico" placeholder="Nome tecnico"></div>
       </div>
       <div class="form-row"><label>Tipo intervento</label><input type="text" id="r_tipo"></div>
       <div class="form-row"><label>Descrizione lavori eseguiti</label><textarea id="r_descrizione" style="min-height:80px;"></textarea></div>
       <div class="form-row">
         <label>Foto allegate</label>
-        <div id="r_foto_preview" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <div id="r_foto_preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;"></div>
+        <input type="file" accept="image/*" multiple id="r_foto_input">
       </div>
       <div class="form-row">
         <label>Firma cliente</label>
@@ -774,11 +770,6 @@ function popupHtml(c){
   if(currentMonth){
     if(s){
       rows += `<div><b>${s.tipo||'-'}</b></div>`;
-      let extra = [];
-      if(s.m3) extra.push('3&deg;: '+s.m3);
-      if(s.m6) extra.push('6&deg;: '+s.m6);
-      if(s.m9) extra.push('9&deg;: '+s.m9);
-      if(extra.length) rows += `<div style="color:#6b7770;">${extra.join(' &middot; ')}</div>`;
       if(s.nota) rows += `<div style="margin-top:4px;">&#128221; ${s.nota}</div>`;
       const fotos = Array.isArray(s.fotos) ? s.fotos : (s.foto ? [s.foto] : []);
       if(fotos.length) rows += `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;">${fotos.map(f=>`<img src="${f}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;">`).join('')}</div>`;
@@ -940,7 +931,7 @@ function newSchedRow(data){
   const fotos = Array.isArray(data.fotos) ? data.fotos.slice() : (data.foto ? [data.foto] : []);
   const row = document.createElement('div');
   row.className = 'sched-entry';
-  const monthOptions = MONTHS.map(m => `<option value="${m}" ${m===((data.mese||'').trim().toUpperCase())?'selected':''}>${m.charAt(0)+m.slice(1).toLowerCase()}</option>`).join('');
+  const monthOptions = MONTHS.map(m => `<option value="${m}" ${m===((data.mese||'').trim().toUpperCase())?'selected':''}>${m}</option>`).join('');
   const tipoOptions = TIPI.map(t => `<option value="${t}" ${t===data.tipo?'selected':''}>${t}</option>`).join('');
   row.innerHTML = `
     <div class="sched-entry-head">
@@ -951,11 +942,9 @@ function newSchedRow(data){
       <div class="form-row"><label>Mese</label><select class="s-mese">${monthOptions}</select></div>
       <div class="form-row"><label>Tipo</label><select class="s-tipo">${tipoOptions}</select></div>
     </div>
-    <div class="form-two-col">
-      <div class="form-row"><label>3&deg; mese</label><input type="text" class="s-m3" value="${data.m3||''}"></div>
-      <div class="form-row"><label>6&deg; mese</label><input type="text" class="s-m6" value="${data.m6||''}"></div>
-      <div class="form-row"><label>9&deg; mese</label><input type="text" class="s-m9" value="${data.m9||''}"></div>
-    </div>
+    <input type="hidden" class="s-m3" value="${data.m3||''}">
+    <input type="hidden" class="s-m6" value="${data.m6||''}">
+    <input type="hidden" class="s-m9" value="${data.m9||''}">
     <div class="form-row"><label>Nota</label><textarea class="s-nota">${data.nota||''}</textarea></div>
     <div class="form-row">
       <label>Foto (puoi aggiungerne pi&ugrave; di una)</label>
@@ -1003,7 +992,18 @@ function newSchedRow(data){
 
   row.querySelector('.s-share-btn').addEventListener('click', async () => {
     const nota = row.querySelector('.s-nota').value;
-    await shareNoteAndPhotos(nota, row._fotos);
+    const mese = row.querySelector('.s-mese').value;
+    const nomeCliente = document.getElementById('f_nome').value.trim() || (editingId ? (CLIENTS.find(x=>x.id===editingId)||{}).nome : '') || '';
+    const indirizzoCliente = [document.getElementById('f_indirizzo').value.trim(), document.getElementById('f_citta').value.trim()].filter(Boolean).join(', ');
+    const oggi = new Date().toLocaleDateString('it-IT');
+    const headerLines = [
+      nomeCliente ? `Cliente: ${nomeCliente}` : null,
+      indirizzoCliente ? `Indirizzo: ${indirizzoCliente}` : null,
+      `Mese: ${mese}`,
+      `Data invio: ${oggi}`
+    ].filter(Boolean);
+    const fullText = headerLines.join('\n') + '\n\n' + (nota || '(nessuna nota)');
+    await shareNoteAndPhotos(fullText, row._fotos);
   });
 
   return row;
@@ -1094,7 +1094,8 @@ function openClientModal(id){
   clientOverlay.classList.add('open');
   setTimeout(() => initMiniMap(c ? c.lat : null, c ? c.lon : null), 80);
 }
-document.getElementById('addClientFab').addEventListener('click', () => openClientModal(null));
+document.getElementById('newClientBtn').addEventListener('click', () => openClientModal(null));
+document.getElementById('genericReportBtn').addEventListener('click', () => openReportModal(null));
 document.getElementById('clientModalClose').addEventListener('click', () => clientOverlay.classList.remove('open'));
 
 document.getElementById('deleteClientBtn').addEventListener('click', () => {
@@ -1193,15 +1194,47 @@ sigCanvas.addEventListener('touchend', sigEnd);
 
 document.getElementById('r_clear_sign').addEventListener('click', () => resizeSigCanvas());
 
+const rMeseSelect = document.getElementById('r_mese');
+rMeseSelect.innerHTML = MONTHS.map(m => `<option value="${m}">${m}</option>`).join('');
+
+function renderReportFotoPreview(){
+  const el = document.getElementById('r_foto_preview');
+  if(!reportPhotos.length){
+    el.innerHTML = '<span class="helper-text">Nessuna foto allegata.</span>';
+    return;
+  }
+  el.innerHTML = reportPhotos.map((f, i) => `
+    <div style="position:relative;">
+      <img src="${f}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">
+      <button type="button" data-remove-report-foto="${i}" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:12px;line-height:1;">&times;</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-remove-report-foto]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      reportPhotos.splice(parseInt(btn.dataset.removeReportFoto), 1);
+      renderReportFotoPreview();
+    });
+  });
+}
+
+document.getElementById('r_foto_input').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  for(const file of files){
+    const dataUrl = await compressImage(file, 900, 0.6);
+    reportPhotos.push(dataUrl);
+  }
+  e.target.value = '';
+  renderReportFotoPreview();
+});
+
 function openReportModal(id){
-  reportClient = CLIENTS.find(x => x.id === id);
-  if(!reportClient) return;
-  const s = currentMonth ? scheduleForMonth(reportClient, currentMonth) : (reportClient.schedule||[])[0];
+  reportClient = (id != null) ? CLIENTS.find(x => x.id === id) : null;
+  const s = reportClient ? (currentMonth ? scheduleForMonth(reportClient, currentMonth) : (reportClient.schedule||[])[0]) : null;
 
   document.getElementById('r_azienda_intestazione').value = localStorage.getItem(R_COMPANY_KEY) || '';
-  document.getElementById('r_cliente').value = reportClient.nome || '';
-  document.getElementById('r_indirizzo').value = `${reportClient.indirizzo||''}, ${reportClient.citta||''}`;
-  document.getElementById('r_mese').value = s ? (s.mese||'') : (currentMonth||'');
+  document.getElementById('r_cliente').value = reportClient ? (reportClient.nome || '') : '';
+  document.getElementById('r_indirizzo').value = reportClient ? `${reportClient.indirizzo||''}, ${reportClient.citta||''}` : '';
+  rMeseSelect.value = s ? (s.mese||'').trim().toUpperCase() : (currentMonth || MONTHS[new Date().getMonth()]);
   document.getElementById('r_tecnico').value = localStorage.getItem(R_TECH_KEY) || '';
   document.getElementById('r_tipo').value = s ? (s.tipo||'') : '';
   document.getElementById('r_descrizione').value = s ? (s.nota||'') : '';
@@ -1209,15 +1242,15 @@ function openReportModal(id){
   const today = new Date();
   document.getElementById('r_data').value = today.toLocaleDateString('it-IT');
 
-  reportPhotos = s ? (Array.isArray(s.fotos) ? s.fotos : (s.foto ? [s.foto] : [])) : [];
-  document.getElementById('r_foto_preview').innerHTML = reportPhotos.map(f =>
-    `<img src="${f}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">`
-  ).join('') || '<span class="helper-text">Nessuna foto per questo mese.</span>';
+  reportPhotos = s ? (Array.isArray(s.fotos) ? s.fotos.slice() : (s.foto ? [s.foto] : [])) : [];
+  renderReportFotoPreview();
 
   reportOverlay.classList.add('open');
   setTimeout(resizeSigCanvas, 60);
 }
 document.getElementById('reportModalClose').addEventListener('click', () => reportOverlay.classList.remove('open'));
+reportOverlay.addEventListener('click', (e) => { if(e.target === reportOverlay) reportOverlay.classList.remove('open'); });
+clientOverlay.addEventListener('click', (e) => { if(e.target === clientOverlay) clientOverlay.classList.remove('open'); });
 
 document.getElementById('r_generate_btn').addEventListener('click', async () => {
   if(typeof window.jspdf === 'undefined'){
@@ -1295,7 +1328,8 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
   doc.setTextColor(120,120,120);
   doc.text('Firma', 12, y+4);
 
-  const fname = `rapportino_${(reportClient.nome||'cliente').replace(/[^a-z0-9]+/gi,'_')}_${document.getElementById('r_data').value.replace(/\//g,'-')}.pdf`;
+  const nomeClienteFile = document.getElementById('r_cliente').value.trim() || 'rapportino';
+  const fname = `rapportino_${nomeClienteFile.replace(/[^a-z0-9]+/gi,'_')}_${document.getElementById('r_data').value.replace(/\//g,'-')}.pdf`;
 
   if(navigator.share && navigator.canShare){
     try{
