@@ -43,6 +43,7 @@
   }
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
+  body{padding-bottom:env(safe-area-inset-bottom);}
   body{
     font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Arial,sans-serif;
     background:var(--paper);
@@ -55,6 +56,9 @@
     background:#141414;
     color:#f2efe6;
     padding:8px 16px;
+    padding-top:max(8px, env(safe-area-inset-top));
+    padding-left:max(16px, env(safe-area-inset-left));
+    padding-right:max(16px, env(safe-area-inset-right));
     display:flex;
     align-items:center;
     gap:10px;
