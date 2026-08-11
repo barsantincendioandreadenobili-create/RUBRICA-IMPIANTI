@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rubrica-impianti-v1';
+const CACHE_NAME = 'rubrica-impianti-v2';
 const APP_SHELL = [
   './',
   './index.html',
@@ -28,18 +28,18 @@ self.addEventListener('fetch', (event) => {
   // Never intercept Firestore/Firebase or other cross-origin API calls: always go to network.
   if (url.origin !== self.location.origin) return;
 
+  // Network-first: se c'e' connessione, prendi sempre la versione piu' recente
+  // e aggiorna la cache. Solo se la rete non risponde (offline) usa la cache
+  // come riserva. Cosi' l'app non resta mai bloccata su una versione vecchia.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const networkFetch = fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
