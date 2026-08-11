@@ -1466,7 +1466,21 @@ initData();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    navigator.serviceWorker.register('./sw.js').then((reg) => {
+      // Forza subito un controllo di aggiornamento (bypassa eventuale cache HTTP di sw.js)
+      reg.update().catch(() => {});
+      // Controlla periodicamente, cosi' se l'app resta aperta a lungo si aggiorna comunque
+      setInterval(() => reg.update().catch(() => {}), 60 * 1000);
+    }).catch(() => {});
+
+    // Quando un nuovo service worker prende il controllo (versione aggiornata),
+    // ricarica automaticamente la pagina una sola volta per usare subito la nuova versione.
+    let refreshedOnce = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if(refreshedOnce) return;
+      refreshedOnce = true;
+      window.location.reload();
+    });
   });
 }
 </script>
