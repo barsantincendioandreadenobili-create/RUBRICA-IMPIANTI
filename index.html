@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Rubrica Impianti</title>
 <link rel="manifest" href="./manifest.json">
-<meta name="theme-color" content="#12313a">
+<meta name="theme-color" content="#141414">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -45,7 +45,7 @@
   html,body{height:100vh;height:100dvh;margin:0;}
   body{
     font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Arial,sans-serif;
-    background:var(--paper);
+    background:var(--card);
     color:var(--ink);
     display:flex;
     flex-direction:column;
@@ -320,6 +320,7 @@
   .modal-footer{
     padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;
     position:sticky;bottom:0;background:#fff;
+    padding-bottom:max(12px, env(safe-area-inset-bottom));
   }
   .close-x{border:none;background:none;font-size:20px;color:var(--muted);cursor:pointer;}
   .helper-text{font-size:11px;color:var(--muted);margin-top:4px;}
@@ -328,6 +329,27 @@
     border-bottom:1px solid var(--line);flex-shrink:0;display:none;
   }
   .banner.show{display:block;}
+
+  @media (max-width:820px){
+    .overlay{padding:0;}
+    .overlay:has(.modal-small){padding:16px;align-items:center;justify-content:center;}
+    .modal:not(.modal-small){
+      max-width:none;width:100vw;height:100dvh;max-height:100dvh;
+      border-radius:0;display:flex;flex-direction:column;
+    }
+    .modal:not(.modal-small) .modal-header{
+      padding-top:max(14px, env(safe-area-inset-top));
+      padding-left:max(16px, env(safe-area-inset-left));
+      padding-right:max(16px, env(safe-area-inset-right));
+      flex-shrink:0;
+    }
+    .modal:not(.modal-small) .modal-body{flex:1;overflow-y:auto;}
+    .modal:not(.modal-small) .modal-footer{
+      flex-shrink:0;
+      padding-left:max(16px, env(safe-area-inset-left));
+      padding-right:max(16px, env(safe-area-inset-right));
+    }
+  }
 </style>
 </head>
 <body>
@@ -484,7 +506,7 @@
 
 <!-- Modale conferma generica -->
 <div id="confirmOverlay" class="overlay">
-  <div class="modal" style="max-width:320px;">
+  <div class="modal modal-small" style="max-width:320px;">
     <div class="modal-body">
       <div id="confirmMsg" style="font-size:14.5px;color:#1c2622;margin-bottom:16px;line-height:1.4;"></div>
       <div style="display:flex;gap:10px;justify-content:flex-end;">
@@ -495,7 +517,7 @@
   </div>
 </div>
 <div id="infoOverlay" class="overlay">
-  <div class="modal" style="max-width:320px;">
+  <div class="modal modal-small" style="max-width:320px;">
     <div class="modal-body">
       <div id="infoMsg" style="font-size:14.5px;color:#1c2622;margin-bottom:16px;line-height:1.4;"></div>
       <div style="display:flex;justify-content:flex-end;">
