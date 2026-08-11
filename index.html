@@ -36,6 +36,8 @@
     --gp:#3a8c8f;
     --imp:#5c6f8a;
     --evac:#b4623e;
+    --pompa-only:#2f8fe0;
+    --pompa-evac:#8457b0;
     --done:#3f9142;
     --danger:#b4463e;
   }
@@ -233,6 +235,8 @@
   .badge.tipo-impianto{background:var(--imp);}
   .badge.tipo-pompa{background:var(--gp);}
   .badge.tipo-evac{background:var(--evac);}
+  .badge.tipo-pompa-only{background:var(--pompa-only);}
+  .badge.tipo-pompa-evac{background:var(--pompa-evac);}
   .badge.azienda{background:var(--navy);opacity:0.85;}
   .badge.nota{background:#8a7455;}
   .mini-btn{
@@ -333,8 +337,10 @@
     </div>
     <div class="legend" id="legend">
       <div class="legend-item"><span class="legend-dot" style="background:#5c6f8a;"></span>Impianto</div>
-      <div class="legend-item"><span class="legend-dot" style="background:#3a8c8f;"></span>Gruppo pompa</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#2f8fe0;"></span>Gruppo pompa</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#3a8c8f;"></span>Impianto+Gruppo pompa</div>
       <div class="legend-item"><span class="legend-dot" style="background:#b4623e;"></span>Evacuatore</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#8457b0;"></span>Gruppo pompa+Evacuatore</div>
       <div class="legend-item"><span class="legend-dot ring"></span>Fatto (mese sel.)</div>
     </div>
 
@@ -429,7 +435,16 @@
         <div class="form-row"><label>Tecnico</label><input type="text" id="r_tecnico" placeholder="Nome tecnico"></div>
       </div>
       <div class="form-row"><label>Tipo intervento</label><input type="text" id="r_tipo"></div>
+      <div class="form-two-col">
+        <div class="form-row"><label>Ore manodopera</label><select id="r_ore_manodopera"></select></div>
+        <div class="form-row"><label>Ore viaggio</label><select id="r_ore_viaggio"></select></div>
+      </div>
       <div class="form-row"><label>Descrizione lavori eseguiti</label><textarea id="r_descrizione" style="min-height:80px;"></textarea></div>
+      <div class="form-row">
+        <label>Materiale utilizzato</label>
+        <div id="r_materiale_list"></div>
+        <button type="button" class="icon-btn" id="r_add_materiale_btn">+ Aggiungi materiale</button>
+      </div>
       <div class="form-row">
         <label>Foto allegate</label>
         <div id="r_foto_preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;"></div>
@@ -483,17 +498,14 @@
    sotto la configurazione che trovi in:
    Impostazioni progetto > Generali > Le tue app > Web (</>) 
    ========================================================= */
-  const firebaseConfig = {
-  apiKey: "AIzaSyAtxFK3DeGcXlmibRZztYftW_Q9Y7V8R8M",
-  authDomain: "rubrica-impianti.firebaseapp.com",
-  projectId: "rubrica-impianti",
-  storageBucket: "rubrica-impianti.firebasestorage.app",
-  messagingSenderId: "782117554121",
-  appId: "1:782117554121:web:61f2cc636421e82f5a8a18"
+const firebaseConfig = {
+  apiKey: "INSERISCI_QUI",
+  authDomain: "INSERISCI_QUI",
+  projectId: "INSERISCI_QUI",
+  storageBucket: "INSERISCI_QUI",
+  messagingSenderId: "INSERISCI_QUI",
+  appId: "INSERISCI_QUI"
 };
-
-  
-
 
 const FIREBASE_CONFIGURED = firebaseConfig.apiKey && firebaseConfig.apiKey !== "INSERISCI_QUI";
 let db = null;
@@ -715,13 +727,19 @@ document.getElementById('seedBtn').addEventListener('click', () => {
 /* ==================== HELPERS TIPO/COLORE ==================== */
 function tipoClass(tipo){
   tipo = (tipo||'').toUpperCase();
-  if(tipo.includes('EVACUATORE') && tipo.includes('POMPA')) return 'tipo-pompa';
-  if(tipo.includes('EVACUATORE')) return 'tipo-evac';
-  if(tipo.includes('POMPA')) return 'tipo-pompa';
+  const hasEvac = tipo.includes('EVACUATORE');
+  const hasPompa = tipo.includes('POMPA');
+  const hasImpianto = tipo.includes('IMPIANTO');
+  if(hasPompa && hasEvac) return 'tipo-pompa-evac';
+  if(hasEvac) return 'tipo-evac';
+  if(hasPompa && hasImpianto) return 'tipo-pompa';
+  if(hasPompa) return 'tipo-pompa-only';
   return 'tipo-impianto';
 }
 function colorHex(cls){
   if(cls === 'tipo-pompa') return '#3a8c8f';
+  if(cls === 'tipo-pompa-only') return '#2f8fe0';
+  if(cls === 'tipo-pompa-evac') return '#8457b0';
   if(cls === 'tipo-evac') return '#b4623e';
   return '#5c6f8a';
 }
@@ -791,6 +809,7 @@ function popupHtml(c){
     <div style="display:flex;gap:6px;">
       <button class="popup-toggle" style="border-color:#1f5f66;color:#1f5f66;" onclick="window.__editFromPopup(${c.id})">Modifica</button>
       <button class="popup-toggle" style="border-color:#d98a3d;color:#d98a3d;" onclick="window.__reportFromPopup(${c.id})">Rapportino</button>
+      <button class="popup-toggle" style="border-color:#2f8fe0;color:#2f8fe0;" onclick="window.__navigateFromPopup(${c.id})">&#128205; Naviga</button>
     </div>
     <div style="margin-top:6px;">${toggle}</div>`;
 }
@@ -803,6 +822,20 @@ window.__toggleFromPopup = async function(id){
 };
 window.__editFromPopup = function(id){ openClientModal(id); };
 window.__reportFromPopup = function(id){ openReportModal(id); };
+window.__navigateFromPopup = function(id){ navigateToClient(id); };
+
+function navigateToClient(id){
+  const c = CLIENTS.find(x => x.id === id);
+  if(!c) return;
+  let url;
+  if(typeof c.lat === 'number' && typeof c.lon === 'number'){
+    url = `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lon}`;
+  } else {
+    const q = encodeURIComponent(`${c.indirizzo||''}, ${c.citta||''}`);
+    url = `https://www.google.com/maps/dir/?api=1&destination=${q}`;
+  }
+  window.open(url, '_blank');
+}
 
 function markerColorFor(c){
   const s = currentMonth ? scheduleForMonth(c, currentMonth) : (c.schedule||[])[0];
@@ -871,9 +904,14 @@ function renderList(filtered){
       </div>
       <button class="mini-btn" data-edit-id="${c.id}" title="Modifica">&#9998;</button>
       <button class="mini-btn" data-report-id="${c.id}" title="Rapportino">&#128221;</button>
+      <button class="mini-btn" data-nav-id="${c.id}" title="Naviga">&#128205;</button>
       <button class="mini-btn danger" data-del-id="${c.id}" title="Elimina">&#128465;</button>
     </div>`;
   }).join('');
+
+  listEl.querySelectorAll('[data-nav-id]').forEach(b => {
+    b.addEventListener('click', (e) => { e.stopPropagation(); navigateToClient(parseInt(b.dataset.navId)); });
+  });
 
   listEl.querySelectorAll('[data-report-id]').forEach(b => {
     b.addEventListener('click', (e) => { e.stopPropagation(); openReportModal(parseInt(b.dataset.reportId)); });
@@ -1200,6 +1238,49 @@ document.getElementById('r_clear_sign').addEventListener('click', () => resizeSi
 const rMeseSelect = document.getElementById('r_mese');
 rMeseSelect.innerHTML = MONTHS.map(m => `<option value="${m}">${m}</option>`).join('');
 
+function buildHourOptions(){
+  let opts = '';
+  for(let h = 0; h <= 20; h += 0.5){
+    const label = h % 1 === 0 ? `${h} h` : `${Math.floor(h)}h 30m`;
+    opts += `<option value="${h}">${label}</option>`;
+  }
+  return opts;
+}
+document.getElementById('r_ore_manodopera').innerHTML = buildHourOptions();
+document.getElementById('r_ore_viaggio').innerHTML = buildHourOptions();
+
+let reportMateriale = [];
+
+function renderMaterialeList(){
+  const el = document.getElementById('r_materiale_list');
+  if(!reportMateriale.length){
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = reportMateriale.map((m, i) => `
+    <div class="form-two-col" data-mat-row="${i}" style="align-items:flex-end;">
+      <div class="form-row" style="flex:0 0 90px;"><label>Quantit&agrave;</label><input type="text" class="mat-qta" value="${m.qta||''}" placeholder="es. 2"></div>
+      <div class="form-row" style="flex:1;"><label>Descrizione materiale</label><input type="text" class="mat-desc" value="${m.desc||''}" placeholder="es. Estintore 6kg"></div>
+      <button type="button" class="mini-btn danger" data-remove-mat="${i}" style="margin-bottom:14px;">&#128465;</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-mat-row]').forEach(row => {
+    const i = parseInt(row.dataset.matRow);
+    row.querySelector('.mat-qta').addEventListener('input', (e) => { reportMateriale[i].qta = e.target.value; });
+    row.querySelector('.mat-desc').addEventListener('input', (e) => { reportMateriale[i].desc = e.target.value; });
+  });
+  el.querySelectorAll('[data-remove-mat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      reportMateriale.splice(parseInt(btn.dataset.removeMat), 1);
+      renderMaterialeList();
+    });
+  });
+}
+document.getElementById('r_add_materiale_btn').addEventListener('click', () => {
+  reportMateriale.push({qta:'', desc:''});
+  renderMaterialeList();
+});
+
 function renderReportFotoPreview(){
   const el = document.getElementById('r_foto_preview');
   if(!reportPhotos.length){
@@ -1241,6 +1322,10 @@ function openReportModal(id){
   document.getElementById('r_tecnico').value = localStorage.getItem(R_TECH_KEY) || '';
   document.getElementById('r_tipo').value = s ? (s.tipo||'') : '';
   document.getElementById('r_descrizione').value = s ? (s.nota||'') : '';
+  document.getElementById('r_ore_manodopera').value = '0';
+  document.getElementById('r_ore_viaggio').value = '0';
+  reportMateriale = [];
+  renderMaterialeList();
 
   const today = new Date();
   document.getElementById('r_data').value = today.toLocaleDateString('it-IT');
@@ -1282,6 +1367,9 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
 
   doc.setTextColor(20,20,20);
   doc.setFontSize(11);
+  const oreManodopera = document.getElementById('r_ore_manodopera').value;
+  const oreViaggio = document.getElementById('r_ore_viaggio').value;
+  const fmtOre = (v) => { const n = parseFloat(v); return (n % 1 === 0 ? `${n} h` : `${Math.floor(n)}h 30m`); };
   const lines = [
     ['Cliente', document.getElementById('r_cliente').value],
     ['Indirizzo', document.getElementById('r_indirizzo').value],
@@ -1289,6 +1377,8 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
     ['Mese di riferimento', document.getElementById('r_mese').value],
     ['Tecnico', tecnico || '-'],
     ['Tipo intervento', document.getElementById('r_tipo').value || '-'],
+    ['Ore manodopera', fmtOre(oreManodopera)],
+    ['Ore viaggio', fmtOre(oreViaggio)],
   ];
   lines.forEach(([label, val]) => {
     doc.setFont(undefined,'bold'); doc.text(label + ':', 12, y);
@@ -1302,6 +1392,28 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
   const desc = doc.splitTextToSize(document.getElementById('r_descrizione').value || '-', pageW - 24);
   doc.text(desc, 12, y);
   y += desc.length * 5.5 + 6;
+
+  const materialeValido = reportMateriale.filter(m => (m.qta && m.qta.trim()) || (m.desc && m.desc.trim()));
+  if(materialeValido.length){
+    if(y > 250){ doc.addPage(); y = 16; }
+    doc.setFont(undefined,'bold'); doc.text('Materiale utilizzato:', 12, y); y += 6;
+    doc.setFontSize(10);
+    doc.text('Quantit\u00e0', 12, y);
+    doc.text('Descrizione', 40, y);
+    y += 5;
+    doc.setDrawColor(200,200,200);
+    doc.line(12, y-3.5, pageW-12, y-3.5);
+    doc.setFont(undefined,'normal');
+    materialeValido.forEach(m => {
+      if(y > 275){ doc.addPage(); y = 16; }
+      doc.text(m.qta || '-', 12, y);
+      const descLines = doc.splitTextToSize(m.desc || '-', pageW - 52);
+      doc.text(descLines, 40, y);
+      y += Math.max(5, descLines.length * 5);
+    });
+    doc.setFontSize(11);
+    y += 4;
+  }
 
   if(reportPhotos.length){
     doc.setFont(undefined,'bold'); doc.text('Foto:', 12, y); y += 4;
