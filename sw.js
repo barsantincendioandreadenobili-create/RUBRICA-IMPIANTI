@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rubrica-impianti-v2';
+const CACHE_NAME = 'rubrica-impianti-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -28,11 +28,15 @@ self.addEventListener('fetch', (event) => {
   // Never intercept Firestore/Firebase or other cross-origin API calls: always go to network.
   if (url.origin !== self.location.origin) return;
 
-  // Network-first: se c'e' connessione, prendi sempre la versione piu' recente
-  // e aggiorna la cache. Solo se la rete non risponde (offline) usa la cache
-  // come riserva. Cosi' l'app non resta mai bloccata su una versione vecchia.
+  // Network-first, bypassando anche la cache HTTP del browser (non solo quella
+  // dell'app): su iOS, le app salvate in Home a volte tengono una copia della
+  // pagina piu' "attaccata" del normale, quindi qui forziamo sempre una vera
+  // richiesta di rete fresca quando c'e' connessione, usando la cache solo
+  // come riserva per l'uso offline.
+  const freshRequest = new Request(event.request, { cache: 'no-store' });
+
   event.respondWith(
-    fetch(event.request)
+    fetch(freshRequest)
       .then((response) => {
         if (response && response.status === 200) {
           const clone = response.clone();

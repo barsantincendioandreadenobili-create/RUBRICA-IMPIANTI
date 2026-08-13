@@ -360,6 +360,7 @@
 <header>
   <div class="brand">Rubrica <span>Impianti</span></div>
   <div class="sub">Manutenzioni clienti &middot; divisione mensile &middot; mappa</div>
+  <button id="refreshAppBtn" title="Aggiorna app" style="background:none;border:none;color:#f2efe6;opacity:0.8;padding:4px;cursor:pointer;display:flex;align-items:center;"><svg viewBox="0 0 24 24" style="width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
   <div class="status-dot" id="statusDot" title="Stato connessione"></div>
 </header>
 
@@ -1808,6 +1809,12 @@ if('serviceWorker' in navigator){
       reg.update().catch(() => {});
       // Controlla periodicamente, cosi' se l'app resta aperta a lungo si aggiorna comunque
       setInterval(() => reg.update().catch(() => {}), 60 * 1000);
+      // Controlla anche ogni volta che l'app torna in primo piano (utile per le app
+      // salvate in Home su iPhone, che spesso restano "in pausa" invece di chiudersi davvero)
+      document.addEventListener('visibilitychange', () => {
+        if(document.visibilityState === 'visible') reg.update().catch(() => {});
+      });
+      window.addEventListener('pageshow', () => reg.update().catch(() => {}));
     }).catch(() => {});
 
     // Quando un nuovo service worker prende il controllo (versione aggiornata),
@@ -1820,6 +1827,25 @@ if('serviceWorker' in navigator){
     });
   });
 }
+
+// Pulsante "Aggiorna app": soluzione manuale sempre affidabile, anche quando
+// l'aggiornamento automatico su iOS tarda ad accorgersi delle novita'.
+// Svuota completamente cache e service worker, poi ricarica da zero.
+document.getElementById('refreshAppBtn').addEventListener('click', async () => {
+  try{
+    if('caches' in window){
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  }catch(e){ /* proseguiamo comunque con il ricaricamento */ }
+  const url = new URL(window.location.href);
+  url.searchParams.set('_r', Date.now());
+  window.location.href = url.toString();
+});
 </script>
 </body>
 </html>
