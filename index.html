@@ -315,9 +315,13 @@
   .sched-entry{
     border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--paper);
   }
+  .sched-entry-readonly{background:#f0efe9;position:relative;}
+  .sched-entry-readonly select,
+  .sched-entry-readonly textarea{
+    background:#e9e8e1;color:var(--muted);cursor:default;opacity:0.85;
+  }
   .sched-entry-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
   .sched-entry-head b{font-size:12px;color:var(--navy);text-transform:uppercase;}
-  #miniMap{height:180px;border-radius:8px;margin-bottom:6px;}
   .modal-footer{
     padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;
     position:sticky;bottom:0;background:#fff;
@@ -436,12 +440,16 @@
         </div>
       </div>
       <div class="form-row">
-        <label>Posizione sulla mappa (tocca per impostare)</label>
-        <div id="miniMap"></div>
         <div class="form-two-col">
           <div class="form-row"><label>Lat</label><input type="number" step="any" id="f_lat"></div>
           <div class="form-row"><label>Lon</label><input type="number" step="any" id="f_lon"></div>
         </div>
+        <div class="helper-text">Coordinate usate per la mappa e la navigazione. Puoi trovarle cercando l'indirizzo su Google Maps e copiandole da l&igrave;.</div>
+      </div>
+
+      <div class="form-row" id="curvePreviewRow" style="display:none;">
+        <label>Curva pompa</label>
+        <div id="curvePreviewBox" style="border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--paper);"></div>
       </div>
 
       <div class="form-row">
@@ -1077,46 +1085,55 @@ const clientOverlay = document.getElementById('clientOverlay');
 const clientModalTitle = document.getElementById('clientModalTitle');
 const schedListEl = document.getElementById('schedList');
 let editingId = null;
-let miniMap = null, miniMarker = null;
 
-function newSchedRow(data){
+function newSchedRow(data, isNew){
+  const isNewlyAdded = !!isNew;
   data = data || {mese:'GENNAIO', tipo:'IMPIANTO', m3:'', m6:'', m9:'', nota:'', fotos:[], fatto:false};
   const fotos = Array.isArray(data.fotos) ? data.fotos.slice() : (data.foto ? [data.foto] : []);
+  const rowMonth = (data.mese||'').trim().toUpperCase();
+  const currentMonthName = MONTHS[new Date().getMonth()];
+  const editable = isNewlyAdded || rowMonth === currentMonthName;
   const row = document.createElement('div');
-  row.className = 'sched-entry';
+  row.className = 'sched-entry' + (editable ? '' : ' sched-entry-readonly');
   const monthOptions = MONTHS.map(m => `<option value="${m}" ${m===((data.mese||'').trim().toUpperCase())?'selected':''}>${m}</option>`).join('');
   const tipoOptions = TIPI.map(t => `<option value="${t}" ${t===data.tipo?'selected':''}>${t}</option>`).join('');
   row.innerHTML = `
     <div class="sched-entry-head">
       <b>Mese</b>
-      <button type="button" class="mini-btn danger" data-remove-row>&#128465; rimuovi</button>
+      ${editable
+        ? `<button type="button" class="mini-btn danger" data-remove-row>&#128465; rimuovi</button>`
+        : `<span class="badge azienda" style="background:var(--muted);">sola lettura</span>`}
     </div>
     <div class="form-two-col">
-      <div class="form-row"><label>Mese</label><select class="s-mese">${monthOptions}</select></div>
-      <div class="form-row"><label>Tipo</label><select class="s-tipo">${tipoOptions}</select></div>
+      <div class="form-row"><label>Mese</label><select class="s-mese" ${editable?'':'disabled'}>${monthOptions}</select></div>
+      <div class="form-row"><label>Tipo</label><select class="s-tipo" ${editable?'':'disabled'}>${tipoOptions}</select></div>
     </div>
     <input type="hidden" class="s-m3" value="${data.m3||''}">
     <input type="hidden" class="s-m6" value="${data.m6||''}">
     <input type="hidden" class="s-m9" value="${data.m9||''}">
-    <div class="form-row"><label>Nota</label><textarea class="s-nota">${data.nota||''}</textarea></div>
-    <div class="form-row">
+    <div class="form-row"><label>Nota</label><textarea class="s-nota" ${editable?'':'disabled'}>${data.nota||''}</textarea></div>
+    <div class="form-row" ${editable?'':'style="display:none;"'}>
       <label>Foto (puoi aggiungerne pi&ugrave; di una)</label>
       <div class="s-foto-grid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;"></div>
       <input type="file" accept="image/*" multiple class="s-foto-input">
     </div>
+    ${!editable && fotos.length ? `<div class="form-row"><label>Foto</label><div class="s-foto-grid-ro" style="display:flex;flex-wrap:wrap;gap:6px;">${fotos.map(f=>`<img src="${f}" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">`).join('')}</div></div>` : ''}
     <div style="display:flex;gap:8px;margin-bottom:10px;">
       <button type="button" class="icon-btn s-share-btn" style="flex:1;">&#128228; Condividi nota e foto</button>
     </div>
     <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);text-transform:none;">
-      <input type="checkbox" class="s-fatto" ${data.fatto?'checked':''}> Gia fatto
+      <input type="checkbox" class="s-fatto" ${data.fatto?'checked':''} ${editable?'':'disabled'}> Gia fatto
     </label>
   `;
-  row.querySelector('[data-remove-row]').addEventListener('click', () => row.remove());
+  if(editable){
+    row.querySelector('[data-remove-row]').addEventListener('click', () => row.remove());
+  }
 
   const fotoGrid = row.querySelector('.s-foto-grid');
   row._fotos = fotos;
 
   function renderFotoGrid(){
+    if(!fotoGrid) return;
     fotoGrid.innerHTML = row._fotos.map((f, i) => `
       <div style="position:relative;">
         <img src="${f}" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">
@@ -1130,18 +1147,20 @@ function newSchedRow(data){
       });
     });
   }
-  renderFotoGrid();
+  if(editable) renderFotoGrid();
 
   const fotoInput = row.querySelector('.s-foto-input');
-  fotoInput.addEventListener('change', async (e) => {
-    const files = [...e.target.files];
-    for(const file of files){
-      const dataUrl = await compressImage(file, 900, 0.6);
-      row._fotos.push(dataUrl);
-    }
-    fotoInput.value = '';
-    renderFotoGrid();
-  });
+  if(fotoInput){
+    fotoInput.addEventListener('change', async (e) => {
+      const files = [...e.target.files];
+      for(const file of files){
+        const dataUrl = await compressImage(file, 900, 0.6);
+        row._fotos.push(dataUrl);
+      }
+      fotoInput.value = '';
+      renderFotoGrid();
+    });
+  }
 
   row.querySelector('.s-share-btn').addEventListener('click', async () => {
     const nota = row.querySelector('.s-nota').value;
@@ -1205,31 +1224,12 @@ function compressImage(file, maxDim, quality){
 }
 
 document.getElementById('addSchedRowBtn').addEventListener('click', () => {
-  schedListEl.appendChild(newSchedRow());
+  schedListEl.appendChild(newSchedRow(null, true));
 });
 
-function initMiniMap(lat, lon){
-  if(!mapReady) return;
-  if(miniMap){ miniMap.remove(); miniMap = null; }
-  miniMap = L.map('miniMap').setView([lat||45.51, lon||12.63], lat ? 14 : 11);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:''}).addTo(miniMap);
-  miniMarker = L.marker([lat||45.51, lon||12.63], {draggable:true}).addTo(miniMap);
-  miniMarker.on('dragend', () => {
-    const p = miniMarker.getLatLng();
-    document.getElementById('f_lat').value = p.lat.toFixed(7);
-    document.getElementById('f_lon').value = p.lng.toFixed(7);
-  });
-  miniMap.on('click', (e) => {
-    miniMarker.setLatLng(e.latlng);
-    document.getElementById('f_lat').value = e.latlng.lat.toFixed(7);
-    document.getElementById('f_lon').value = e.latlng.lng.toFixed(7);
-  });
-  setTimeout(() => { try{ miniMap.invalidateSize(); }catch(e){} }, 120);
-}
-
 function openClientModal(id){
-  editingId = id || null;
-  const c = id ? CLIENTS.find(x => x.id === id) : null;
+  editingId = (id != null) ? id : null;
+  const c = (id != null) ? CLIENTS.find(x => x.id === id) : null;
   clientModalTitle.textContent = c ? 'Modifica cliente' : 'Nuovo cliente';
   document.getElementById('deleteClientBtn').style.display = c ? 'inline-block' : 'none';
   document.getElementById('f_nome').value = c ? c.nome : '';
@@ -1244,8 +1244,8 @@ function openClientModal(id){
   } else {
     schedListEl.appendChild(newSchedRow());
   }
+  renderCurvePreview(c);
   clientOverlay.classList.add('open');
-  setTimeout(() => initMiniMap(c ? c.lat : null, c ? c.lon : null), 80);
 }
 document.getElementById('newClientBtn').addEventListener('click', () => openClientModal(null));
 document.getElementById('genericReportBtn').addEventListener('click', () => openReportModal(null));
@@ -1276,7 +1276,7 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
     fatto: row.querySelector('.s-fatto').checked
   }));
   const client = {
-    id: editingId || nextLocalId++,
+    id: (editingId != null) ? editingId : nextLocalId++,
     nome,
     indirizzo: document.getElementById('f_indirizzo').value.trim(),
     citta: document.getElementById('f_citta').value.trim(),
@@ -1298,6 +1298,27 @@ const CV_W = 640, CV_H = 380, CV_M = {top:36, right:24, bottom:50, left:56};
 
 function defaultCurvePoints(){
   return [{p:0,c:0},{p:1,c:0},{p:2,c:0}];
+}
+
+function renderCurvePreview(c){
+  const row = document.getElementById('curvePreviewRow');
+  const box = document.getElementById('curvePreviewBox');
+  const hasPompa = c && (c.schedule||[]).some(s => (s.tipo||'').toUpperCase().includes('POMPA'));
+  if(!hasPompa){ row.style.display = 'none'; return; }
+  row.style.display = 'block';
+  const saved = c.curvaPompa;
+  if(saved && Array.isArray(saved.points) && saved.points.length){
+    box.innerHTML = `
+      <div style="font-size:12.5px;color:var(--ink);margin-bottom:8px;">${saved.title || 'Curva salvata'} &middot; ${saved.points.length} punti</div>
+      <button type="button" class="icon-btn" id="curvePreviewOpenBtn" style="width:100%;">Apri / modifica curva pompa</button>
+    `;
+  } else {
+    box.innerHTML = `
+      <div class="helper-text" style="margin:0 0 8px;">Nessuna curva salvata per questo cliente.</div>
+      <button type="button" class="icon-btn" id="curvePreviewOpenBtn" style="width:100%;">+ Crea curva pompa</button>
+    `;
+  }
+  document.getElementById('curvePreviewOpenBtn').addEventListener('click', () => openCurveModal(c.id));
 }
 
 function renderCurveTable(){
@@ -1434,6 +1455,9 @@ document.getElementById('cv_save').addEventListener('click', async () => {
     points: curvePoints
   };
   await upsertClient(curveClient);
+  if(clientOverlay.classList.contains('open') && editingId === curveClient.id){
+    renderCurvePreview(curveClient);
+  }
   showInfo('Curva salvata sulla scheda cliente.');
 });
 
