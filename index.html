@@ -1062,14 +1062,6 @@ function renderList(filtered){
       const id = parseInt(card.dataset.id);
       selectedId = id;
       render(false);
-      if(window.innerWidth <= 820) setMobileView('map');
-      const c = CLIENTS.find(x => x.id === id);
-      if(c && mapReady && map && typeof c.lat === 'number'){
-        try{
-          map.flyTo([c.lat,c.lon], 15, {duration:0.6});
-          setTimeout(() => { if(markers[id]) markers[id].openPopup(); }, 650);
-        }catch(e){}
-      }
     });
   });
 }
