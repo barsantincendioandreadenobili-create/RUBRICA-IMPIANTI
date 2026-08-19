@@ -454,6 +454,11 @@
         <div id="schedList"></div>
         <button class="icon-btn" id="addSchedRowBtn" type="button">+ Aggiungi mese</button>
       </div>
+
+      <div class="form-row">
+        <label>Storico rapportini</label>
+        <div id="storicoRapportiniList"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="icon-btn danger" id="deleteClientBtn" style="display:none;">Elimina cliente</button>
@@ -1079,7 +1084,6 @@ function newSchedRow(data, isNew){
   row._curva = (data.curvaPompa && Array.isArray(data.curvaPompa.points))
     ? { points: data.curvaPompa.points.map(p=>({...p})) }
     : null;
-  row._rapportini = Array.isArray(data.rapportini) ? data.rapportini.slice() : [];
 
   const monthOptions = MONTHS.map(m => `<option value="${m}" ${m===((data.mese||'').trim().toUpperCase())?'selected':''}>${m}</option>`).join('');
   const tipoOptions = TIPI.map(t => `<option value="${t}" ${t===data.tipo?'selected':''}>${t}</option>`).join('');
@@ -1114,15 +1118,11 @@ function newSchedRow(data, isNew){
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);text-transform:none;margin-bottom:10px;">
         <input type="checkbox" class="s-fatto" ${data.fatto?'checked':''}> Gia fatto
       </label>
-      <div class="s-curva-wrap" style="display:${startsPompa?'block':'none'};border-top:1px dashed var(--line);padding-top:10px;margin-bottom:10px;">
+      <div class="s-curva-wrap" style="display:${startsPompa?'block':'none'};border-top:1px dashed var(--line);padding-top:10px;">
         <label>Curva pompa di questo mese</label>
         <div class="s-curva-table"></div>
         <button type="button" class="icon-btn s-curva-addpt" style="margin-bottom:8px;">+ Aggiungi punto</button>
         <div class="s-curva-chart" style="border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;"></div>
-      </div>
-      <div class="s-rapportini-wrap" style="border-top:1px dashed var(--line);padding-top:10px;">
-        <label>Rapportini di questo mese</label>
-        <div class="s-rapportini-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
       </div>
     </div>
   `;
@@ -1206,9 +1206,6 @@ function newSchedRow(data, isNew){
     renderInlineCurve(row);
   }
 
-  // Storico rapportini di questo mese
-  renderRapportiniList(row);
-
   return row;
 }
 
@@ -1258,30 +1255,6 @@ function drawInlineCurveChart(row){
   const chartBox = row.querySelector('.s-curva-chart');
   const points = row._curva ? row._curva.points : [];
   chartBox.innerHTML = buildCurveSvg(points, 'Curva pompa', 'bar', 'm\u00b3/h', INLINE_CV_W, INLINE_CV_H, INLINE_CV_M);
-}
-
-function renderRapportiniList(row){
-  const box = row.querySelector('.s-rapportini-list');
-  if(!row._rapportini.length){
-    box.innerHTML = '<span class="helper-text">Nessun rapportino generato per questo mese.</span>';
-    return;
-  }
-  box.innerHTML = row._rapportini.map((r, i) => `
-    <button type="button" class="badge" data-open-rapportino="${i}" style="background:var(--navy);border:none;cursor:pointer;">&#128196; Rapportino ${r.data||''}</button>
-  `).join('');
-  box.querySelectorAll('[data-open-rapportino]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const r = row._rapportini[parseInt(btn.dataset.openRapportino)];
-      if(!r || !r.pdf) return;
-      const a = document.createElement('a');
-      a.href = r.pdf;
-      a.download = r.fileName || 'rapportino.pdf';
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    });
-  });
 }
 
 async function shareNoteAndPhotos(nota, fotos){
@@ -1347,6 +1320,7 @@ function openClientModal(id){
   } else {
     schedListEl.appendChild(newSchedRow());
   }
+  renderStoricoRapportini(c);
   clientOverlay.classList.add('open');
 }
 document.getElementById('newClientBtn').addEventListener('click', () => openClientModal(null));
@@ -1354,13 +1328,76 @@ document.getElementById('genericReportBtn').addEventListener('click', () => open
 document.getElementById('clientModalClose').addEventListener('click', () => clientOverlay.classList.remove('open'));
 
 document.getElementById('deleteClientBtn').addEventListener('click', () => {
-  if(!editingId) return;
+  if(editingId == null) return;
   const c = CLIENTS.find(x => x.id === editingId);
   showConfirm(`Eliminare "${c.nome}"?`, async () => {
     await deleteClientData(editingId);
     clientOverlay.classList.remove('open');
   });
 });
+
+function renderStoricoRapportini(c){
+  const box = document.getElementById('storicoRapportiniList');
+  const list = (c && Array.isArray(c.rapportini)) ? c.rapportini : [];
+  if(!list.length){
+    box.innerHTML = '<span class="helper-text">Nessun rapportino generato per questo cliente.</span>';
+    return;
+  }
+  const ordered = list.map((r, i) => ({...r, _idx: i})).sort((a,b) => (b.ts||0) - (a.ts||0));
+  box.innerHTML = ordered.map(r => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff;">
+      <span style="flex:1;font-size:12.5px;color:var(--ink);">&#128196; Rapportino ${r.data||''}${r.mese?' &middot; '+r.mese.charAt(0)+r.mese.slice(1).toLowerCase():''}</span>
+      <button type="button" class="mini-btn" data-storico-open="${r._idx}" title="Apri"><svg viewBox="0 0 24 24"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6"/></svg></button>
+      <button type="button" class="mini-btn nav" data-storico-resend="${r._idx}" title="Rinvia"><svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg></button>
+      <button type="button" class="mini-btn danger" data-storico-del="${r._idx}" title="Elimina"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+    </div>
+  `).join('');
+
+  box.querySelectorAll('[data-storico-open]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = c.rapportini[parseInt(btn.dataset.storicoOpen)];
+      if(!r || !r.pdf) return;
+      const a = document.createElement('a');
+      a.href = r.pdf;
+      a.download = r.fileName || 'rapportino.pdf';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+  });
+
+  box.querySelectorAll('[data-storico-resend]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const r = c.rapportini[parseInt(btn.dataset.storicoResend)];
+      if(!r || !r.pdf) return;
+      if(!navigator.share){ showInfo('La condivisione diretta non e supportata da questo browser.'); return; }
+      try{
+        const res = await fetch(r.pdf);
+        const blob = await res.blob();
+        const file = new File([blob], r.fileName || 'rapportino.pdf', {type:'application/pdf'});
+        if(navigator.canShare && navigator.canShare({files:[file]})){
+          await navigator.share({title:'Rapportino intervento', files:[file]});
+        } else {
+          showInfo('Il tuo browser non supporta la condivisione di file PDF.');
+        }
+      }catch(e){
+        if(e.name !== 'AbortError') showInfo('Invio non riuscito: ' + e.message);
+      }
+    });
+  });
+
+  box.querySelectorAll('[data-storico-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.storicoDel);
+      showConfirm('Eliminare questo rapportino dallo storico?', async () => {
+        c.rapportini.splice(idx, 1);
+        await upsertClient(c);
+        renderStoricoRapportini(c);
+      });
+    });
+  });
+}
 
 document.getElementById('saveClientBtn').addEventListener('click', async () => {
   const nome = document.getElementById('f_nome').value.trim();
@@ -1376,9 +1413,9 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
     nota: row.querySelector('.s-nota').value,
     fotos: row._fotos || [],
     fatto: row.querySelector('.s-fatto').checked,
-    curvaPompa: row._curva && row._curva.points && row._curva.points.length ? { points: row._curva.points } : null,
-    rapportini: row._rapportini || []
+    curvaPompa: row._curva && row._curva.points && row._curva.points.length ? { points: row._curva.points } : null
   }));
+  const existingClient = (editingId != null) ? CLIENTS.find(x => x.id === editingId) : null;
   const client = {
     id: (editingId != null) ? editingId : nextLocalId++,
     nome,
@@ -1387,7 +1424,8 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
     azienda: document.getElementById('f_azienda').value.trim(),
     lat: isNaN(lat) ? null : lat,
     lon: isNaN(lon) ? null : lon,
-    schedule
+    schedule,
+    rapportini: existingClient ? (existingClient.rapportini || []) : []
   };
   await upsertClient(client);
   clientOverlay.classList.remove('open');
@@ -1854,25 +1892,23 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
   const nomeClienteFile = document.getElementById('r_cliente').value.trim() || 'rapportino';
   const fname = `rapportino_${nomeClienteFile.replace(/[^a-z0-9]+/gi,'_')}_${document.getElementById('r_data').value.replace(/\//g,'-')}.pdf`;
 
-  // Salva una copia nello storico del cliente/mese, cosi' resta sempre consultabile
+  // Salva una copia nello storico del cliente, cosi' resta sempre consultabile
+  // (indipendentemente dal mese: un intervento puo' capitare fuori programma)
   if(reportClient){
     try{
       const pdfDataUri = doc.output('datauristring');
-      const meseSel = document.getElementById('r_mese').value;
-      let s = (reportClient.schedule||[]).find(x => (x.mese||'').trim().toUpperCase() === meseSel);
-      if(!s){
-        s = {mese: meseSel, tipo:'', m3:'', m6:'', m9:'', nota:'', fotos:[], fatto:false};
-        reportClient.schedule = reportClient.schedule || [];
-        reportClient.schedule.push(s);
-      }
-      s.rapportini = Array.isArray(s.rapportini) ? s.rapportini : [];
-      s.rapportini.push({
+      reportClient.rapportini = Array.isArray(reportClient.rapportini) ? reportClient.rapportini : [];
+      reportClient.rapportini.push({
         data: document.getElementById('r_data').value,
+        mese: document.getElementById('r_mese').value,
         ts: Date.now(),
         pdf: pdfDataUri,
         fileName: fname
       });
       await upsertClient(reportClient);
+      if(clientOverlay.classList.contains('open') && editingId === reportClient.id){
+        renderStoricoRapportini(reportClient);
+      }
     }catch(e){ /* il salvataggio dello storico non deve mai bloccare l'invio del rapportino */ }
   }
 
