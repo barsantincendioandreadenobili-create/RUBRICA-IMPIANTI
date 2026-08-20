@@ -727,6 +727,72 @@ async function deleteClientData(id){
   }
 }
 
+/* ==================== STORICO RAPPORTINI (archiviazione separata) =====
+   I PDF vengono salvati fuori dal documento del cliente, cosi' la scheda
+   cliente resta sempre leggera: puoi accumulare quanti rapportini vuoi
+   senza mai rischiare di superare il limite di salvataggio.
+   ======================================================================= */
+const RAPPORTINI_LOCAL_KEY = 'ri_rapportini_v1';
+
+function loadRapportiniLocalAll(){
+  try{
+    const raw = localStorage.getItem(RAPPORTINI_LOCAL_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){ return []; }
+}
+function saveRapportiniLocalAll(list){
+  try{ localStorage.setItem(RAPPORTINI_LOCAL_KEY, JSON.stringify(list)); }catch(e){}
+}
+
+async function loadRapportiniForClient(clientId){
+  if(storageMode === 'firebase'){
+    const snap = await db.collection('clients').doc(idToDocId(clientId)).collection('rapportini').orderBy('ts','desc').get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } else {
+    return loadRapportiniLocalAll()
+      .filter(r => r.clientId === clientId)
+      .sort((a,b) => (b.ts||0) - (a.ts||0));
+  }
+}
+
+async function saveRapportino(clientId, entry){
+  if(storageMode === 'firebase'){
+    const ref = db.collection('clients').doc(idToDocId(clientId)).collection('rapportini').doc();
+    await ref.set(entry);
+    return ref.id;
+  } else {
+    const id = 'r' + Date.now() + Math.random().toString(36).slice(2,7);
+    const all = loadRapportiniLocalAll();
+    all.push({ id, clientId, ...entry });
+    saveRapportiniLocalAll(all);
+    return id;
+  }
+}
+
+async function deleteRapportino(clientId, rapportinoId){
+  if(storageMode === 'firebase'){
+    await db.collection('clients').doc(idToDocId(clientId)).collection('rapportini').doc(rapportinoId).delete();
+  } else {
+    const all = loadRapportiniLocalAll().filter(r => r.id !== rapportinoId);
+    saveRapportiniLocalAll(all);
+  }
+}
+
+// Ripara automaticamente le schede clienti che, per un bug ora corretto,
+// avevano i PDF salvati dentro al documento del cliente (troppo pesante).
+// Sposta quei rapportini nell'archivio separato e alleggerisce la scheda.
+async function migrateEmbeddedRapportini(c){
+  if(!c || !Array.isArray(c.rapportini) || !c.rapportini.length) return;
+  const embedded = c.rapportini;
+  c.rapportini = [];
+  try{
+    for(const r of embedded){
+      await saveRapportino(c.id, { data: r.data, mese: r.mese, ts: r.ts || Date.now(), pdf: r.pdf, fileName: r.fileName });
+    }
+    await upsertClient(c);
+  }catch(e){ /* se la riparazione fallisce, ci riprovera' al prossimo apertura */ }
+}
+
 /* ==================== VISTA MOBILE (lista/mappa) ==================== */
 document.body.classList.add('mode-list');
 const btnViewList = document.getElementById('btnViewList');
@@ -1303,7 +1369,7 @@ document.getElementById('addSchedRowBtn').addEventListener('click', () => {
   schedListEl.appendChild(newSchedRow(null, true));
 });
 
-function openClientModal(id){
+async function openClientModal(id){
   editingId = (id != null) ? id : null;
   const c = (id != null) ? CLIENTS.find(x => x.id === id) : null;
   clientModalTitle.textContent = c ? 'Modifica cliente' : 'Nuovo cliente';
@@ -1320,8 +1386,13 @@ function openClientModal(id){
   } else {
     schedListEl.appendChild(newSchedRow());
   }
-  renderStoricoRapportini(c);
   clientOverlay.classList.add('open');
+  if(c){
+    await migrateEmbeddedRapportini(c);
+    renderStoricoRapportini(c);
+  } else {
+    renderStoricoRapportini(null);
+  }
 }
 document.getElementById('newClientBtn').addEventListener('click', () => openClientModal(null));
 document.getElementById('genericReportBtn').addEventListener('click', () => openReportModal(null));
@@ -1336,26 +1407,38 @@ document.getElementById('deleteClientBtn').addEventListener('click', () => {
   });
 });
 
-function renderStoricoRapportini(c){
+async function renderStoricoRapportini(c){
   const box = document.getElementById('storicoRapportiniList');
-  const list = (c && Array.isArray(c.rapportini)) ? c.rapportini : [];
+  if(!c){
+    box.innerHTML = '<span class="helper-text">Salva prima il cliente per avere uno storico rapportini.</span>';
+    return;
+  }
+  box.innerHTML = '<span class="helper-text">Caricamento...</span>';
+  let list = [];
+  try{
+    list = await loadRapportiniForClient(c.id);
+  }catch(e){
+    box.innerHTML = '<span class="helper-text">Impossibile caricare lo storico al momento.</span>';
+    return;
+  }
   if(!list.length){
     box.innerHTML = '<span class="helper-text">Nessun rapportino generato per questo cliente.</span>';
     return;
   }
-  const ordered = list.map((r, i) => ({...r, _idx: i})).sort((a,b) => (b.ts||0) - (a.ts||0));
-  box.innerHTML = ordered.map(r => `
+  box.innerHTML = list.map(r => `
     <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff;">
       <span style="flex:1;font-size:12.5px;color:var(--ink);">&#128196; Rapportino ${r.data||''}${r.mese?' &middot; '+r.mese.charAt(0)+r.mese.slice(1).toLowerCase():''}</span>
-      <button type="button" class="mini-btn" data-storico-open="${r._idx}" title="Apri"><svg viewBox="0 0 24 24"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6"/></svg></button>
-      <button type="button" class="mini-btn nav" data-storico-resend="${r._idx}" title="Rinvia"><svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg></button>
-      <button type="button" class="mini-btn danger" data-storico-del="${r._idx}" title="Elimina"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+      <button type="button" class="mini-btn" data-storico-open="${r.id}" title="Apri"><svg viewBox="0 0 24 24"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6"/></svg></button>
+      <button type="button" class="mini-btn nav" data-storico-resend="${r.id}" title="Rinvia"><svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg></button>
+      <button type="button" class="mini-btn danger" data-storico-del="${r.id}" title="Elimina"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
     </div>
   `).join('');
 
+  const byId = Object.fromEntries(list.map(r => [String(r.id), r]));
+
   box.querySelectorAll('[data-storico-open]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const r = c.rapportini[parseInt(btn.dataset.storicoOpen)];
+      const r = byId[btn.dataset.storicoOpen];
       if(!r || !r.pdf) return;
       const a = document.createElement('a');
       a.href = r.pdf;
@@ -1369,7 +1452,7 @@ function renderStoricoRapportini(c){
 
   box.querySelectorAll('[data-storico-resend]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const r = c.rapportini[parseInt(btn.dataset.storicoResend)];
+      const r = byId[btn.dataset.storicoResend];
       if(!r || !r.pdf) return;
       if(!navigator.share){ showInfo('La condivisione diretta non e supportata da questo browser.'); return; }
       try{
@@ -1389,11 +1472,14 @@ function renderStoricoRapportini(c){
 
   box.querySelectorAll('[data-storico-del]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.storicoDel);
+      const rid = btn.dataset.storicoDel;
       showConfirm('Eliminare questo rapportino dallo storico?', async () => {
-        c.rapportini.splice(idx, 1);
-        await upsertClient(c);
-        renderStoricoRapportini(c);
+        try{
+          await deleteRapportino(c.id, rid);
+          renderStoricoRapportini(c);
+        }catch(e){
+          showInfo('Eliminazione non riuscita: ' + e.message);
+        }
       });
     });
   });
@@ -1415,7 +1501,6 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
     fatto: row.querySelector('.s-fatto').checked,
     curvaPompa: row._curva && row._curva.points && row._curva.points.length ? { points: row._curva.points } : null
   }));
-  const existingClient = (editingId != null) ? CLIENTS.find(x => x.id === editingId) : null;
   const client = {
     id: (editingId != null) ? editingId : nextLocalId++,
     nome,
@@ -1424,8 +1509,7 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
     azienda: document.getElementById('f_azienda').value.trim(),
     lat: isNaN(lat) ? null : lat,
     lon: isNaN(lon) ? null : lon,
-    schedule,
-    rapportini: existingClient ? (existingClient.rapportini || []) : []
+    schedule
   };
   await upsertClient(client);
   clientOverlay.classList.remove('open');
@@ -1791,6 +1875,12 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
     showInfo('Funzione non disponibile offline: serve una connessione internet la prima volta.');
     return;
   }
+  const genBtn = document.getElementById('r_generate_btn');
+  if(genBtn.disabled) return; // evita generazioni doppie se si tocca piu' volte
+  genBtn.disabled = true;
+  const genBtnOriginalText = genBtn.textContent;
+  genBtn.textContent = 'Generazione in corso...';
+
   const azienda = document.getElementById('r_azienda_intestazione').value.trim();
   const tecnico = document.getElementById('r_tecnico').value.trim();
   localStorage.setItem(R_COMPANY_KEY, azienda);
@@ -1892,28 +1982,29 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
   const nomeClienteFile = document.getElementById('r_cliente').value.trim() || 'rapportino';
   const fname = `rapportino_${nomeClienteFile.replace(/[^a-z0-9]+/gi,'_')}_${document.getElementById('r_data').value.replace(/\//g,'-')}.pdf`;
 
-  // Salva una copia nello storico del cliente, cosi' resta sempre consultabile
-  // (indipendentemente dal mese: un intervento puo' capitare fuori programma)
+  // Salva una copia nello storico del cliente (archivio separato, la scheda
+  // cliente resta sempre leggera), indipendentemente dal mese: un intervento
+  // puo' capitare fuori programma.
   if(reportClient){
     try{
       const pdfDataUri = doc.output('datauristring');
-      reportClient.rapportini = Array.isArray(reportClient.rapportini) ? reportClient.rapportini : [];
-      reportClient.rapportini.push({
+      await saveRapportino(reportClient.id, {
         data: document.getElementById('r_data').value,
         mese: document.getElementById('r_mese').value,
         ts: Date.now(),
         pdf: pdfDataUri,
         fileName: fname
       });
-      await upsertClient(reportClient);
       if(clientOverlay.classList.contains('open') && editingId === reportClient.id){
         renderStoricoRapportini(reportClient);
       }
-    }catch(e){ /* il salvataggio dello storico non deve mai bloccare l'invio del rapportino */ }
+    }catch(e){
+      showInfo('Il rapportino e stato generato ma non sono riuscito a salvarlo nello storico (' + e.message + '). Puoi comunque scaricarlo/inviarlo ora.');
+    }
   }
 
-  if(navigator.share && navigator.canShare){
-    try{
+  try{
+    if(navigator.share && navigator.canShare){
       const blob = doc.output('blob');
       const file = new File([blob], fname, {type:'application/pdf'});
       if(navigator.canShare({files:[file]})){
@@ -1921,10 +2012,15 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
         reportOverlay.classList.remove('open');
         return;
       }
-    }catch(e){ /* fallback sotto */ }
+    }
+    doc.save(fname);
+    reportOverlay.classList.remove('open');
+  }catch(e){
+    if(e.name !== 'AbortError') showInfo('Invio/salvataggio del PDF non riuscito: ' + e.message);
+  }finally{
+    genBtn.disabled = false;
+    genBtn.textContent = genBtnOriginalText;
   }
-  doc.save(fname);
-  reportOverlay.classList.remove('open');
 });
 
 /* ==================== AVVIO ==================== */
