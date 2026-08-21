@@ -20,6 +20,7 @@
 <!-- Firebase (facoltativo: se non configurato, l'app funziona in modalita' locale sul singolo dispositivo) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
 <style>
   :root{
@@ -362,12 +363,36 @@
 </head>
 <body>
 
+<!-- Schermata di accesso (solo se Firebase e' configurato) -->
+<div id="loginScreen" style="display:none;position:fixed;inset:0;background:#141414;z-index:20000;align-items:center;justify-content:center;padding:20px;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max(20px, env(safe-area-inset-bottom));">
+  <div style="width:100%;max-width:360px;">
+    <div style="text-align:center;margin-bottom:26px;">
+      <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:700;color:#2f8fe0;">Rubrica <span style="color:#f2efe6;">Impianti</span></div>
+      <div style="font-size:12px;color:#9aa39c;margin-top:4px;">Accedi con la tua email per continuare</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:20px;">
+      <div class="form-row">
+        <label>Email</label>
+        <input type="email" id="login_email" autocomplete="username" placeholder="nome@esempio.it">
+      </div>
+      <div class="form-row">
+        <label>Password</label>
+        <input type="password" id="login_password" autocomplete="current-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;">
+      </div>
+      <div id="loginError" style="display:none;background:#fbeceb;color:#a3402d;font-size:12px;padding:8px 10px;border-radius:6px;margin-bottom:12px;"></div>
+      <button type="button" class="icon-btn primary" id="loginBtn" style="width:100%;margin-bottom:10px;">Accedi</button>
+      <button type="button" id="forgotPwBtn" style="width:100%;background:none;border:none;color:#6b7770;font-size:12px;text-decoration:underline;cursor:pointer;padding:4px;">Password dimenticata?</button>
+    </div>
+  </div>
+</div>
+
 <div class="banner" id="localBanner">Modalita locale: i dati restano solo su questo dispositivo. Configura Firebase nel codice per sincronizzare su piu dispositivi.</div>
 
 <header>
   <div class="brand">Rubrica <span>Impianti</span></div>
   <div class="sub">Manutenzioni clienti &middot; divisione mensile &middot; mappa</div>
   <button id="refreshAppBtn" title="Aggiorna app" style="background:none;border:none;color:#f2efe6;opacity:0.8;padding:4px;cursor:pointer;display:flex;align-items:center;"><svg viewBox="0 0 24 24" style="width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
+  <button id="logoutBtn" title="Esci" style="display:none;background:none;border:none;color:#f2efe6;opacity:0.8;padding:4px;cursor:pointer;align-items:center;"><svg viewBox="0 0 24 24" style="width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg></button>
   <div class="status-dot" id="statusDot" title="Stato connessione"></div>
 </header>
 
@@ -742,6 +767,21 @@ function loadRapportiniLocalAll(){
 }
 function saveRapportiniLocalAll(list){
   try{ localStorage.setItem(RAPPORTINI_LOCAL_KEY, JSON.stringify(list)); }catch(e){}
+}
+
+// Converte una data URI (usata per salvare i PDF) in un vero Blob.
+// Molto piu' affidabile di aprire/scaricare direttamente la data URI,
+// che su iPhone puo' bloccarsi con file di una certa dimensione.
+function dataUriToBlob(dataUri){
+  const commaIdx = dataUri.indexOf(',');
+  const header = dataUri.slice(0, commaIdx);
+  const base64 = dataUri.slice(commaIdx + 1);
+  const mimeMatch = header.match(/data:([^;]+)/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/pdf';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for(let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], {type: mime});
 }
 
 async function loadRapportiniForClient(clientId){
@@ -1440,13 +1480,14 @@ async function renderStoricoRapportini(c){
     btn.addEventListener('click', () => {
       const r = byId[btn.dataset.storicoOpen];
       if(!r || !r.pdf) return;
-      const a = document.createElement('a');
-      a.href = r.pdf;
-      a.download = r.fileName || 'rapportino.pdf';
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      try{
+        const blob = dataUriToBlob(r.pdf);
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }catch(e){
+        showInfo('Impossibile aprire il rapportino: ' + e.message);
+      }
     });
   });
 
@@ -1456,8 +1497,7 @@ async function renderStoricoRapportini(c){
       if(!r || !r.pdf) return;
       if(!navigator.share){ showInfo('La condivisione diretta non e supportata da questo browser.'); return; }
       try{
-        const res = await fetch(r.pdf);
-        const blob = await res.blob();
+        const blob = dataUriToBlob(r.pdf);
         const file = new File([blob], r.fileName || 'rapportino.pdf', {type:'application/pdf'});
         if(navigator.canShare && navigator.canShare({files:[file]})){
           await navigator.share({title:'Rapportino intervento', files:[file]});
@@ -2023,8 +2063,97 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
   }
 });
 
+/* ==================== ACCESSO (Firebase Authentication) ==================== */
+const loginScreen = document.getElementById('loginScreen');
+const logoutBtn = document.getElementById('logoutBtn');
+let appStarted = false;
+
+function showLoginScreen(msg){
+  loginScreen.style.display = 'flex';
+  logoutBtn.style.display = 'none';
+  const errBox = document.getElementById('loginError');
+  if(msg){ errBox.textContent = msg; errBox.style.display = 'block'; }
+  else { errBox.style.display = 'none'; }
+}
+function hideLoginScreen(){
+  loginScreen.style.display = 'none';
+  logoutBtn.style.display = 'flex';
+}
+function startAppOnce(){
+  if(appStarted) return;
+  appStarted = true;
+  initData();
+}
+
+function translateAuthError(code){
+  const map = {
+    'auth/invalid-email': 'Indirizzo email non valido.',
+    'auth/user-disabled': 'Questo account e stato disabilitato.',
+    'auth/user-not-found': 'Email o password non corrette.',
+    'auth/wrong-password': 'Email o password non corrette.',
+    'auth/invalid-credential': 'Email o password non corrette.',
+    'auth/too-many-requests': 'Troppi tentativi. Riprova tra qualche minuto.',
+    'auth/missing-password': 'Inserisci la password.'
+  };
+  return map[code] || 'Accesso non riuscito. Riprova.';
+}
+
+document.getElementById('loginBtn').addEventListener('click', async () => {
+  const email = document.getElementById('login_email').value.trim();
+  const password = document.getElementById('login_password').value;
+  if(!email || !password){ showLoginScreen('Inserisci email e password.'); return; }
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  btn.textContent = 'Accesso in corso...';
+  try{
+    await firebase.auth().signInWithEmailAndPassword(email, password);
+    // onAuthStateChanged gestisce il resto (nasconde la schermata, avvia l'app)
+  }catch(e){
+    showLoginScreen(translateAuthError(e.code));
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Accedi';
+  }
+});
+
+document.getElementById('login_password').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter') document.getElementById('loginBtn').click();
+});
+
+document.getElementById('forgotPwBtn').addEventListener('click', async () => {
+  const email = document.getElementById('login_email').value.trim();
+  if(!email){ showLoginScreen('Scrivi la tua email qui sopra, poi tocca di nuovo "Password dimenticata".'); return; }
+  try{
+    await firebase.auth().sendPasswordResetEmail(email);
+    showLoginScreen('Ti abbiamo inviato una email per reimpostare la password.');
+  }catch(e){
+    showLoginScreen(translateAuthError(e.code));
+  }
+});
+
+logoutBtn.addEventListener('click', () => {
+  showConfirm('Uscire dall\'app?', async () => {
+    await firebase.auth().signOut();
+  });
+});
+
 /* ==================== AVVIO ==================== */
-initData();
+if(storageMode === 'firebase'){
+  firebase.auth().onAuthStateChanged((user) => {
+    if(user){
+      hideLoginScreen();
+      startAppOnce();
+    } else {
+      showLoginScreen();
+      appStarted = false;
+      CLIENTS = [];
+      render();
+    }
+  });
+} else {
+  // Modalita locale: nessun accesso richiesto, l'app parte subito
+  startAppOnce();
+}
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
