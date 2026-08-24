@@ -2022,6 +2022,27 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
   const nomeClienteFile = document.getElementById('r_cliente').value.trim() || 'rapportino';
   const fname = `rapportino_${nomeClienteFile.replace(/[^a-z0-9]+/gi,'_')}_${document.getElementById('r_data').value.replace(/\//g,'-')}.pdf`;
 
+  // Prima condividiamo/scarichiamo il PDF: deve avvenire il piu' vicino
+  // possibile al tocco dell'utente, altrimenti Safari nega il permesso
+  // di condivisione. Lo storico si salva subito dopo, in background.
+  let shareOrSaveOk = true;
+  try{
+    if(navigator.share && navigator.canShare){
+      const blob = doc.output('blob');
+      const file = new File([blob], fname, {type:'application/pdf'});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({title:'Rapportino intervento', files:[file]});
+      } else {
+        doc.save(fname);
+      }
+    } else {
+      doc.save(fname);
+    }
+  }catch(e){
+    shareOrSaveOk = false;
+    if(e.name !== 'AbortError') showInfo('Invio/salvataggio del PDF non riuscito: ' + e.message);
+  }
+
   // Salva una copia nello storico del cliente (archivio separato, la scheda
   // cliente resta sempre leggera), indipendentemente dal mese: un intervento
   // puo' capitare fuori programma.
@@ -2039,27 +2060,14 @@ document.getElementById('r_generate_btn').addEventListener('click', async () => 
         renderStoricoRapportini(reportClient);
       }
     }catch(e){
-      showInfo('Il rapportino e stato generato ma non sono riuscito a salvarlo nello storico (' + e.message + '). Puoi comunque scaricarlo/inviarlo ora.');
+      showInfo('Il rapportino e stato inviato/scaricato ma non sono riuscito a salvarlo nello storico (' + e.message + ').');
     }
   }
 
-  try{
-    if(navigator.share && navigator.canShare){
-      const blob = doc.output('blob');
-      const file = new File([blob], fname, {type:'application/pdf'});
-      if(navigator.canShare({files:[file]})){
-        await navigator.share({title:'Rapportino intervento', files:[file]});
-        reportOverlay.classList.remove('open');
-        return;
-      }
-    }
-    doc.save(fname);
+  genBtn.disabled = false;
+  genBtn.textContent = genBtnOriginalText;
+  if(shareOrSaveOk){
     reportOverlay.classList.remove('open');
-  }catch(e){
-    if(e.name !== 'AbortError') showInfo('Invio/salvataggio del PDF non riuscito: ' + e.message);
-  }finally{
-    genBtn.disabled = false;
-    genBtn.textContent = genBtnOriginalText;
   }
 });
 
